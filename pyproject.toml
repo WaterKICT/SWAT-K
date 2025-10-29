@@ -1,19 +1,28 @@
 [project]
 name = "swat-k"
 version = "0.1.0"
-description = "Add your description here"
+description = "KICT SWAT PoC 2025 - SWAT 데이터 처리 및 시각화 도구"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "pyside6>=6.10.0",
+]
+
+[project.scripts]
+swat-k = "swat_k.main:main"
 
 [dependency-groups]
 dev = [
     "ruff>=0.14.2",
 ]
 
+[tool.uv]
+package = true
+
 [tool.ruff]
 line-length = 88
 target-version = "py313"
+extend-exclude = ["src/swat_k/ui/output_ui.py"]
 
 [tool.ruff.lint]
 select = [
