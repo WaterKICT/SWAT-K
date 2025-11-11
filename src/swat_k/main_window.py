@@ -5,7 +5,6 @@ from datetime import datetime
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from PySide6.QtCore import Qt, Slot
@@ -82,13 +81,13 @@ class MainWindow(QWidget):
             # RCH CSV 파일 읽기
             df_rch = self._load_rch_file(rch_file)
 
-            # 시작 연도로 필터링
+            # 시작 연도로 필터링 (특정 연도만)
             start_year_int = int(start_year)
-            df_rch_filtered = df_rch[df_rch["date"].dt.year >= start_year_int]
+            df_rch_filtered = df_rch[df_rch["date"].dt.year == start_year_int]
 
             if df_rch_filtered.empty:
                 QMessageBox.warning(
-                    self, "데이터 없음", f"{start_year}년 이후 데이터가 없습니다."
+                    self, "데이터 없음", f"{start_year}년 데이터가 없습니다."
                 )
                 return
 
@@ -172,17 +171,26 @@ class MainWindow(QWidget):
         fig, ax = plt.subplots(figsize=(10, 4), dpi=100)
 
         # 꺾은선 그래프 그리기
-        ax.plot(df["date"], df["flow"], linewidth=1, color="#2E86AB")
+        # 날짜를 MM-DD 형식으로 변환
+        dates_mmdd = df["date"].dt.strftime("%m-%d")
+        ax.plot(dates_mmdd, df["flow"], linewidth=1, color="#2E86AB")
 
         # 그래프 스타일링
-        ax.set_xlabel("날짜", fontsize=10)
+        ax.set_xlabel("MM-DD", fontsize=10)
         ax.set_ylabel("유량 (m³/s)", fontsize=10)
         ax.set_title("일단위 유량 차트", fontsize=12, fontweight="bold")
         ax.grid(True, alpha=0.3, linestyle="--")
         ax.tick_params(axis="both", labelsize=8)
 
-        # x축 날짜 포맷 설정
-        fig.autofmt_xdate()
+        # x축 레이블 회전 및 간격 조정
+        plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha="right")
+
+        # 적절한 간격으로 x축 레이블 표시 (너무 많지 않게)
+        step = max(1, len(dates_mmdd) // 12)  # 최대 12개 레이블 표시
+        ax.set_xticks(range(0, len(dates_mmdd), step))
+        ax.set_xticklabels(
+            [dates_mmdd.iloc[i] for i in range(0, len(dates_mmdd), step)]
+        )
 
         # 레이아웃 조정
         plt.tight_layout()
@@ -240,7 +248,7 @@ class MainWindow(QWidget):
             raise ValueError(f"데이터에 {year}년이 없습니다.")
 
         flow_data = df[year].dropna()  # NaN 값 제거
-        day_values = np.arange(1, len(flow_data) + 1)  # Day (1-365/366)
+        day_values = range(1, len(flow_data) + 1)  # Day (1-365/366)
 
         # 유황곡선 그리기 (로그 스케일 y축)
         ax.plot(day_values, flow_data, linewidth=2, color="#E63946")
