@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from PySide6.QtCore import Qt, Slot
@@ -143,8 +144,15 @@ class MainWindow(QWidget):
             연도별 유량 데이터를 포함한 DataFrame
         """
         df = pd.read_csv(file_path, index_col=0)
-        # 컬럼명을 정수형으로 변환
-        df.columns = df.columns.astype(int)
+        # 첫 번째 컬럼(인덱스)을 제외한 나머지 컬럼명을 정수형으로 변환
+        # 'Unnamed'로 시작하는 컬럼은 건너뛰기
+        df.columns = [
+            int(col) if not str(col).startswith('Unnamed') else col
+            for col in df.columns
+        ]
+        # 숫자 컬럼만 필터링
+        numeric_cols = [col for col in df.columns if isinstance(col, int)]
+        df = df[numeric_cols]
         return df
 
     def _create_and_display_chart(self, df: pd.DataFrame) -> Path:
@@ -232,14 +240,14 @@ class MainWindow(QWidget):
             raise ValueError(f"데이터에 {year}년이 없습니다.")
 
         flow_data = df[year].dropna()  # NaN 값 제거
-        exceedance_probability = (range(len(flow_data), 0, -1)) / len(flow_data) * 100
+        day_values = np.arange(1, len(flow_data) + 1)  # Day (1-365/366)
 
         # 유황곡선 그리기 (로그 스케일 y축)
-        ax.plot(exceedance_probability, flow_data, linewidth=2, color="#E63946")
+        ax.plot(day_values, flow_data, linewidth=2, color="#E63946")
         ax.set_yscale("log")
 
         # 그래프 스타일링
-        ax.set_xlabel("초과확률 (%)", fontsize=10)
+        ax.set_xlabel("Day", fontsize=10)
         ax.set_ylabel("유량 (m³/s)", fontsize=10)
         ax.set_title(
             f"소유역별 연도별 유황곡선 - {year}년", fontsize=12, fontweight="bold"
@@ -247,8 +255,8 @@ class MainWindow(QWidget):
         ax.grid(True, alpha=0.3, linestyle="--", which="both")
         ax.tick_params(axis="both", labelsize=8)
 
-        # x축 범위 설정 (0-100%)
-        ax.set_xlim(0, 100)
+        # x축 범위 설정 (1-365/366)
+        ax.set_xlim(1, len(flow_data))
 
         # 레이아웃 조정
         plt.tight_layout()
