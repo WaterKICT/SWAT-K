@@ -1,6 +1,7 @@
 """메인 애플리케이션 윈도우"""
 
 import io
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -22,6 +23,10 @@ class MainWindow(QWidget):
         self.ui = Ui_Form()
         self.ui.setupUi(self)
 
+        # 차트 원본 이미지를 저장해서 리사이즈 시 재사용
+        self._pixmap_daily_flow = None
+        self._pixmap_flow_duration = None
+
         # UI 텍스트 변경
         self._customize_ui()
 
@@ -38,6 +43,15 @@ class MainWindow(QWidget):
         self.ui.button_browse_cio.clicked.connect(self._browse_cio_file)
         self.ui.button_convert.clicked.connect(self._convert_data)
         self.ui.button_read_result.clicked.connect(self._read_result)
+
+    def _configure_matplotlib_font(self):
+        if sys.platform.startswith("win"):
+            plt.rcParams["font.family"] = "Malgun Gothic"
+        elif sys.platform == "darwin":
+            plt.rcParams["font.family"] = "AppleGothic"
+        else:
+            plt.rcParams["font.family"] = "NanumGothic"
+        plt.rcParams["axes.unicode_minus"] = False
 
     @Slot()
     def _browse_rch_file(self):
@@ -146,7 +160,7 @@ class MainWindow(QWidget):
         # 첫 번째 컬럼(인덱스)을 제외한 나머지 컬럼명을 정수형으로 변환
         # 'Unnamed'로 시작하는 컬럼은 건너뛰기
         df.columns = [
-            int(col) if not str(col).startswith('Unnamed') else col
+            int(col) if not str(col).startswith("Unnamed") else col
             for col in df.columns
         ]
         # 숫자 컬럼만 필터링
@@ -164,8 +178,9 @@ class MainWindow(QWidget):
             저장된 차트 파일 경로
         """
         # matplotlib 한글 폰트 설정
-        plt.rcParams["font.family"] = "Malgun Gothic"  # Windows 기본 한글 폰트
+        plt.rcParams["font.family"] = "NanumSquare"  # Linux 기본 한글 폰트
         plt.rcParams["axes.unicode_minus"] = False  # 마이너스 기호 깨짐 방지
+        self._configure_matplotlib_font()
 
         # Figure 생성
         fig, ax = plt.subplots(figsize=(10, 4), dpi=100)
@@ -211,18 +226,50 @@ class MainWindow(QWidget):
         # QPixmap으로 변환하여 QLabel에 표시
         pixmap = QPixmap()
         pixmap.loadFromData(buf.read())
-        self.ui.label_chart_daily_flow.setPixmap(
-            pixmap.scaled(
-                self.ui.label_chart_daily_flow.size(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-            )
-        )
+        self._pixmap_daily_flow = pixmap
+        self._update_daily_flow_pixmap()
 
         # 메모리 정리
         plt.close(fig)
         buf.close()
 
         return chart_file
+
+    def _update_daily_flow_pixmap(self):
+        """현재 라벨 크기에 맞춰 일단위 유량 차트 이미지를 리사이즈"""
+        if self._pixmap_daily_flow is None:
+            return
+        if (
+            self.ui.label_chart_daily_flow.size().width() == 0
+            or self.ui.label_chart_daily_flow.size().height() == 0
+        ):
+            return
+        scaled = self._pixmap_daily_flow.scaled(
+            self.ui.label_chart_daily_flow.size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+        )
+        self.ui.label_chart_daily_flow.setPixmap(scaled)
+
+    def _update_flow_duration_pixmap(self):
+        """현재 라벨 크기에 맞춰 유황곡선 차트 이미지를 리사이즈"""
+        if self._pixmap_flow_duration is None:
+            return
+        if (
+            self.ui.label_chart_flow_duration.size().width() == 0
+            or self.ui.label_chart_flow_duration.size().height() == 0
+        ):
+            return
+        scaled = self._pixmap_flow_duration.scaled(
+            self.ui.label_chart_flow_duration.size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+        )
+        self.ui.label_chart_flow_duration.setPixmap(scaled)
+
+    def resizeEvent(self, event):
+        """윈도우 리사이즈 시 차트 이미지를 함께 리사이즈"""
+        self._update_daily_flow_pixmap()
+        self._update_flow_duration_pixmap()
+        super().resizeEvent(event)
 
     def _create_and_display_flow_duration_chart(
         self, df: pd.DataFrame, year: int
@@ -237,8 +284,9 @@ class MainWindow(QWidget):
             저장된 차트 파일 경로
         """
         # matplotlib 한글 폰트 설정
-        plt.rcParams["font.family"] = "Malgun Gothic"  # Windows 기본 한글 폰트
+        plt.rcParams["font.family"] = "NanumSquare"  # Linux 기본 한글 폰트
         plt.rcParams["axes.unicode_minus"] = False  # 마이너스 기호 깨짐 방지
+        self._configure_matplotlib_font()
 
         # Figure 생성
         fig, ax = plt.subplots(figsize=(10, 4), dpi=100)
@@ -285,12 +333,8 @@ class MainWindow(QWidget):
         # QPixmap으로 변환하여 QLabel에 표시
         pixmap = QPixmap()
         pixmap.loadFromData(buf.read())
-        self.ui.label_chart_flow_duration.setPixmap(
-            pixmap.scaled(
-                self.ui.label_chart_flow_duration.size(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-            )
-        )
+        self._pixmap_flow_duration = pixmap
+        self._update_flow_duration_pixmap()
 
         # 메모리 정리
         plt.close(fig)
