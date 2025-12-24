@@ -1,15 +1,13 @@
 """메인 애플리케이션 윈도우"""
 
-import io
 from datetime import datetime
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import pandas as pd
-from matplotlib.backends.backend_agg import FigureCanvasAgg
-from PySide6.QtCore import Qt, Slot
-from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QFileDialog, QMessageBox, QWidget
+from PySide6.QtCore import QMargins, Qt, Slot
+from PySide6.QtCharts import QChart, QChartView, QLineSeries, QLogValueAxis, QValueAxis
+from PySide6.QtGui import QPainter
+from PySide6.QtWidgets import QFileDialog, QMessageBox, QSizePolicy, QWidget
 
 from swat_k.ui.output_ui import Ui_Form
 
@@ -22,6 +20,10 @@ class MainWindow(QWidget):
         self.ui = Ui_Form()
         self.ui.setupUi(self)
 
+        self._init_charts()
+
+        self._configure_layout_stretch()
+
         # UI 텍스트 변경
         self._customize_ui()
 
@@ -31,6 +33,77 @@ class MainWindow(QWidget):
     def _customize_ui(self):
         """UI 커스터마이징"""
         self.ui.lineEdit_rch.setPlaceholderText("CSV 파일 경로를 입력하세요")
+
+    def _configure_layout_stretch(self) -> None:
+        self.ui.groupBox_Output.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        # Main layout: let Output expand; avoid bottom spacer consuming all extra height
+        self.ui.verticalLayout_Main.setStretch(0, 0)
+        self.ui.verticalLayout_Main.setStretch(1, 1)
+        self.ui.verticalLayout_Main.setStretch(2, 0)
+
+    def _init_charts(self):
+        self.ui.label_chart_daily_flow.hide()
+        self.ui.label_chart_flow_duration.hide()
+
+        chart_min_h = max(
+            200,
+            int(self.ui.label_chart_daily_flow.minimumSize().height() or 0),
+            int(self.ui.label_chart_flow_duration.minimumSize().height() or 0),
+        )
+
+        self.daily_flow_chart = QChart()
+        self.daily_flow_chart.legend().hide()
+        self.daily_flow_chart.setTitle("일단위 유량 차트")
+        self.daily_flow_chart.setMargins(QMargins(0, 0, 0, 0))
+        self.daily_flow_series = QLineSeries()
+        self.daily_flow_chart.addSeries(self.daily_flow_series)
+        self.daily_flow_axis_x = QValueAxis()
+        self.daily_flow_axis_x.setLabelFormat("%d")
+        self.daily_flow_axis_x.setTitleText("Day Index")
+        self.daily_flow_axis_y = QValueAxis()
+        self.daily_flow_axis_y.setTitleText("유량 (m³/s)")
+        self.daily_flow_chart.addAxis(self.daily_flow_axis_x, Qt.AlignBottom)
+        self.daily_flow_chart.addAxis(self.daily_flow_axis_y, Qt.AlignLeft)
+        self.daily_flow_series.attachAxis(self.daily_flow_axis_x)
+        self.daily_flow_series.attachAxis(self.daily_flow_axis_y)
+
+        self.daily_flow_chart_view = QChartView(self.daily_flow_chart, self)
+        self.daily_flow_chart_view.setRenderHint(QPainter.Antialiasing)
+        self.daily_flow_chart_view.setMinimumHeight(chart_min_h)
+        self.daily_flow_chart_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        self.flow_duration_chart = QChart()
+        self.flow_duration_chart.legend().hide()
+        self.flow_duration_chart.setTitle("소유역별 연도별 유황곡선")
+        self.flow_duration_chart.setMargins(QMargins(0, 0, 0, 0))
+        self.flow_duration_series = QLineSeries()
+        self.flow_duration_chart.addSeries(self.flow_duration_series)
+        self.flow_duration_axis_x = QValueAxis()
+        self.flow_duration_axis_x.setLabelFormat("%d")
+        self.flow_duration_axis_x.setTitleText("Day")
+        self.flow_duration_axis_y = QLogValueAxis()
+        self.flow_duration_axis_y.setBase(10)
+        self.flow_duration_axis_y.setLabelFormat("%.0f")
+        self.flow_duration_axis_y.setTitleText("유량 (m³/s)")
+        self.flow_duration_chart.addAxis(self.flow_duration_axis_x, Qt.AlignBottom)
+        self.flow_duration_chart.addAxis(self.flow_duration_axis_y, Qt.AlignLeft)
+        self.flow_duration_series.attachAxis(self.flow_duration_axis_x)
+        self.flow_duration_series.attachAxis(self.flow_duration_axis_y)
+
+        self.flow_duration_chart_view = QChartView(self.flow_duration_chart, self)
+        self.flow_duration_chart_view.setRenderHint(QPainter.Antialiasing)
+        self.flow_duration_chart_view.setMinimumHeight(chart_min_h)
+        self.flow_duration_chart_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        daily_idx = self.ui.verticalLayout_Output.indexOf(self.ui.label_chart_daily_flow)
+        self.ui.verticalLayout_Output.insertWidget(daily_idx + 1, self.daily_flow_chart_view)
+        flow_idx = self.ui.verticalLayout_Output.indexOf(self.ui.label_chart_flow_duration)
+        self.ui.verticalLayout_Output.insertWidget(flow_idx + 1, self.flow_duration_chart_view)
+
+        # Let charts consume available vertical space inside Output
+        self.ui.verticalLayout_Output.setStretch(self.ui.verticalLayout_Output.indexOf(self.daily_flow_chart_view), 1)
+        self.ui.verticalLayout_Output.setStretch(self.ui.verticalLayout_Output.indexOf(self.flow_duration_chart_view), 1)
 
     def _connect_signals(self):
         """시그널-슬롯 연결"""
@@ -100,10 +173,11 @@ class MainWindow(QWidget):
                 return
 
             # 차트 생성 및 표시
-            rch_chart_path = self._create_and_display_chart(df_rch_filtered)
-            cio_chart_path = self._create_and_display_flow_duration_chart(
-                df_cio, start_year_int
-            )
+            self._update_daily_flow_chart(df_rch_filtered)
+            self._update_flow_duration_chart(df_cio, start_year_int)
+
+            rch_chart_path = Path("output/charts")
+            cio_chart_path = Path("output/charts")
 
             QMessageBox.information(
                 self,
@@ -154,149 +228,42 @@ class MainWindow(QWidget):
         df = df[numeric_cols]
         return df
 
-    def _create_and_display_chart(self, df: pd.DataFrame) -> Path:
-        """차트 생성 및 QLabel에 표시
+    def _update_daily_flow_chart(self, df: pd.DataFrame) -> None:
+        self.daily_flow_series.clear()
 
-        Args:
-            df: 날짜와 유량 데이터를 포함한 DataFrame
+        flows = df["flow"].astype(float).tolist()
+        for i, y in enumerate(flows):
+            self.daily_flow_series.append(float(i), float(y))
 
-        Returns:
-            저장된 차트 파일 경로
-        """
-        # matplotlib 한글 폰트 설정
-        plt.rcParams["font.family"] = "Malgun Gothic"  # Windows 기본 한글 폰트
-        plt.rcParams["axes.unicode_minus"] = False  # 마이너스 기호 깨짐 방지
+        if flows:
+            self.daily_flow_axis_x.setRange(0, max(0, len(flows) - 1))
+            min_y = min(flows)
+            max_y = max(flows)
+            if min_y == max_y:
+                max_y = min_y + 1.0
+            self.daily_flow_axis_y.setRange(float(min_y), float(max_y))
 
-        # Figure 생성
-        fig, ax = plt.subplots(figsize=(10, 4), dpi=100)
-
-        # 꺾은선 그래프 그리기
-        # 날짜를 MM-DD 형식으로 변환
-        dates_mmdd = df["date"].dt.strftime("%m-%d")
-        ax.plot(dates_mmdd, df["flow"], linewidth=1, color="#2E86AB")
-
-        # 그래프 스타일링
-        ax.set_xlabel("MM-DD", fontsize=10)
-        ax.set_ylabel("유량 (m³/s)", fontsize=10)
-        ax.set_title("일단위 유량 차트", fontsize=12, fontweight="bold")
-        ax.grid(True, alpha=0.3, linestyle="--")
-        ax.tick_params(axis="both", labelsize=8)
-
-        # x축 레이블 회전 및 간격 조정
-        plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha="right")
-
-        # 적절한 간격으로 x축 레이블 표시 (너무 많지 않게)
-        step = max(1, len(dates_mmdd) // 12)  # 최대 12개 레이블 표시
-        ax.set_xticks(range(0, len(dates_mmdd), step))
-        ax.set_xticklabels(
-            [dates_mmdd.iloc[i] for i in range(0, len(dates_mmdd), step)]
-        )
-
-        # 레이아웃 조정
-        plt.tight_layout()
-
-        # 차트를 파일로 저장
-        output_dir = Path("output/charts")
-        output_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        chart_file = output_dir / f"daily_flow_{timestamp}.png"
-        fig.savefig(chart_file, dpi=100, bbox_inches="tight")
-
-        # Figure를 이미지로 변환 (UI 표시용)
-        canvas = FigureCanvasAgg(fig)
-        buf = io.BytesIO()
-        canvas.print_png(buf)
-        buf.seek(0)
-
-        # QPixmap으로 변환하여 QLabel에 표시
-        pixmap = QPixmap()
-        pixmap.loadFromData(buf.read())
-        self.ui.label_chart_daily_flow.setPixmap(
-            pixmap.scaled(
-                self.ui.label_chart_daily_flow.size(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-            )
-        )
-
-        # 메모리 정리
-        plt.close(fig)
-        buf.close()
-
-        return chart_file
-
-    def _create_and_display_flow_duration_chart(
-        self, df: pd.DataFrame, year: int
-    ) -> Path:
-        """유황곡선 차트 생성 및 QLabel에 표시
-
-        Args:
-            df: 연도별 유량 데이터를 포함한 DataFrame
-            year: 표시할 연도
-
-        Returns:
-            저장된 차트 파일 경로
-        """
-        # matplotlib 한글 폰트 설정
-        plt.rcParams["font.family"] = "Malgun Gothic"  # Windows 기본 한글 폰트
-        plt.rcParams["axes.unicode_minus"] = False  # 마이너스 기호 깨짐 방지
-
-        # Figure 생성
-        fig, ax = plt.subplots(figsize=(10, 4), dpi=100)
-
-        # 해당 연도 데이터 추출
+    def _update_flow_duration_chart(self, df: pd.DataFrame, year: int) -> None:
         if year not in df.columns:
             raise ValueError(f"데이터에 {year}년이 없습니다.")
 
-        flow_data = df[year].dropna()  # NaN 값 제거
-        day_values = range(1, len(flow_data) + 1)  # Day (1-365/366)
+        self.flow_duration_chart.setTitle(f"소유역별 연도별 유황곡선 - {year}년")
+        self.flow_duration_series.clear()
 
-        # 유황곡선 그리기 (로그 스케일 y축)
-        ax.plot(day_values, flow_data, linewidth=2, color="#E63946")
-        ax.set_yscale("log")
+        flow_data = df[year].dropna().astype(float).tolist()
 
-        # 그래프 스타일링
-        ax.set_xlabel("Day", fontsize=10)
-        ax.set_ylabel("유량 (m³/s)", fontsize=10)
-        ax.set_title(
-            f"소유역별 연도별 유황곡선 - {year}년", fontsize=12, fontweight="bold"
-        )
-        ax.grid(True, alpha=0.3, linestyle="--", which="both")
-        ax.tick_params(axis="both", labelsize=8)
+        # 로그축에서는 0 이하 값은 표현 불가하므로 제거
+        filtered = [v for v in flow_data if v > 0]
+        for day, y in enumerate(filtered, start=1):
+            self.flow_duration_series.append(float(day), float(y))
 
-        # x축 범위 설정 (1-365/366)
-        ax.set_xlim(1, len(flow_data))
-
-        # 레이아웃 조정
-        plt.tight_layout()
-
-        # 차트를 파일로 저장
-        output_dir = Path("output/charts")
-        output_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        chart_file = output_dir / f"flow_duration_{year}_{timestamp}.png"
-        fig.savefig(chart_file, dpi=100, bbox_inches="tight")
-
-        # Figure를 이미지로 변환 (UI 표시용)
-        canvas = FigureCanvasAgg(fig)
-        buf = io.BytesIO()
-        canvas.print_png(buf)
-        buf.seek(0)
-
-        # QPixmap으로 변환하여 QLabel에 표시
-        pixmap = QPixmap()
-        pixmap.loadFromData(buf.read())
-        self.ui.label_chart_flow_duration.setPixmap(
-            pixmap.scaled(
-                self.ui.label_chart_flow_duration.size(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-            )
-        )
-
-        # 메모리 정리
-        plt.close(fig)
-        buf.close()
-
-        return chart_file
+        if filtered:
+            self.flow_duration_axis_x.setRange(1, max(1, len(filtered)))
+            min_y = min(filtered)
+            max_y = max(filtered)
+            if min_y == max_y:
+                max_y = min_y * 10.0
+            self.flow_duration_axis_y.setRange(float(min_y), float(max_y))
 
     @Slot()
     def _read_result(self):
