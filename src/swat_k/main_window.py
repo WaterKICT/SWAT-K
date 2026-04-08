@@ -112,6 +112,12 @@ class MainWindow(QWidget):
         self.ui.button_convert.clicked.connect(self._convert_data)
         self.ui.button_read_result.clicked.connect(self._read_result)
 
+    def _save_chart_snapshot(self, chart_view: QChartView, output_path: Path) -> Path:
+        pixmap = chart_view.grab()
+        if not pixmap.save(str(output_path), "PNG"):
+            raise RuntimeError(f"차트 저장에 실패했습니다: {output_path}")
+        return output_path
+
     @Slot()
     def _browse_rch_file(self):
         """CSV 파일 선택"""
@@ -176,8 +182,18 @@ class MainWindow(QWidget):
             self._update_daily_flow_chart(df_rch_filtered)
             self._update_flow_duration_chart(df_cio, start_year_int)
 
-            rch_chart_path = Path("output/charts")
-            cio_chart_path = Path("output/charts")
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            rch_dir = Path(rch_file).resolve().parent
+            cio_dir = Path(cio_file).resolve().parent
+
+            rch_chart_path = self._save_chart_snapshot(
+                self.daily_flow_chart_view,
+                rch_dir / f"daily_flow_{start_year_int}_{timestamp}.png",
+            )
+            cio_chart_path = self._save_chart_snapshot(
+                self.flow_duration_chart_view,
+                cio_dir / f"flow_duration_{start_year_int}_{timestamp}.png",
+            )
 
             QMessageBox.information(
                 self,
