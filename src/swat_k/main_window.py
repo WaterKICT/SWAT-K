@@ -4,10 +4,10 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-from PySide6.QtCore import QMargins, Qt, Slot
-from PySide6.QtCharts import QChart, QChartView, QLineSeries, QLogValueAxis, QValueAxis
-from PySide6.QtGui import QPainter
-from PySide6.QtWidgets import QFileDialog, QMessageBox, QSizePolicy, QWidget
+from qgis.PyQt.QtCore import QMargins, Qt, pyqtSlot
+from qgis.PyQt.QtCharts import QChart, QChartView, QLineSeries, QLogValueAxis, QValueAxis
+from qgis.PyQt.QtGui import QPainter
+from qgis.PyQt.QtWidgets import QFileDialog, QMessageBox, QSizePolicy, QWidget
 
 from swat_k.ui.output_ui import Ui_Form
 
@@ -118,7 +118,7 @@ class MainWindow(QWidget):
             raise RuntimeError(f"차트 저장에 실패했습니다: {output_path}")
         return output_path
 
-    @Slot()
+    @pyqtSlot()
     def _browse_rch_file(self):
         """CSV 파일 선택"""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -127,7 +127,7 @@ class MainWindow(QWidget):
         if file_path:
             self.ui.lineEdit_rch.setText(file_path)
 
-    @Slot()
+    @pyqtSlot()
     def _browse_cio_file(self):
         """CIO 파일 선택"""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -136,7 +136,7 @@ class MainWindow(QWidget):
         if file_path:
             self.ui.lineEdit_cio.setText(file_path)
 
-    @Slot()
+    @pyqtSlot()
     def _convert_data(self):
         """데이터 변환 실행"""
         rch_file = self.ui.lineEdit_rch.text()
@@ -281,7 +281,7 @@ class MainWindow(QWidget):
                 max_y = min_y * 10.0
             self.flow_duration_axis_y.setRange(float(min_y), float(max_y))
 
-    @Slot()
+    @pyqtSlot()
     def _read_result(self):
         """결과 읽기 및 차트 표시"""
         # TODO: 실제 결과 읽기 및 차트 생성 로직 구현

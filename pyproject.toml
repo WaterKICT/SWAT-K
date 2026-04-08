@@ -5,13 +5,9 @@ description = "KICT SWAT PoC 2025 - SWAT 데이터 처리 및 시각화 도구"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "pyside6>=6.10.0",
     "matplotlib>=3.9.0",
     "pandas>=2.2.0",
 ]
-
-[project.scripts]
-swat-k = "swat_k.main:main"
 
 [dependency-groups]
 dev = [
