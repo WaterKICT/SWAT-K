@@ -13,7 +13,11 @@ dependencies = [
 dev = [
     "ruff>=0.14.2",
     "pyinstaller>=6.0.0",
+    "qgis-plugin-ci>=2.8.0",
 ]
+
+[tool.qgis-plugin-ci]
+plugin_path = "src/swat_k"
 
 [tool.uv]
 package = true

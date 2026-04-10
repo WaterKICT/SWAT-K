@@ -1,6 +1,6 @@
 [general]
 name=SWAT-K
-qgisMinimumVersion=3.0
+qgisMinimumVersion=4.0
 description=KICT SWAT PoC 2025 - SWAT 데이터 처리 및 시각화 도구
 version=0.1
 author=KICT

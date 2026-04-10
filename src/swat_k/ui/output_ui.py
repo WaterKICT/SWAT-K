@@ -8,14 +8,14 @@
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
 
-from PySide6.QtCore import (QCoreApplication, QDate, QDateTime, QLocale,
+from qgis.PyQt.QtCore import (QCoreApplication, QDate, QDateTime, QLocale,
     QMetaObject, QObject, QPoint, QRect,
     QSize, QTime, QUrl, Qt)
-from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
+from qgis.PyQt.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QFont, QFontDatabase, QGradient, QIcon,
     QImage, QKeySequence, QLinearGradient, QPainter,
     QPalette, QPixmap, QRadialGradient, QTransform)
-from PySide6.QtWidgets import (QApplication, QFormLayout, QFrame, QGroupBox,
+from qgis.PyQt.QtWidgets import (QApplication, QFormLayout, QFrame, QGroupBox,
     QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QSizePolicy, QSpacerItem, QVBoxLayout, QWidget)
 
@@ -118,7 +118,7 @@ class Ui_Form(object):
         self.label_chart_daily_flow.setObjectName(u"label_chart_daily_flow")
         self.label_chart_daily_flow.setMinimumSize(QSize(0, 200))
         self.label_chart_daily_flow.setStyleSheet(u"background-color: #f0f0f0; border: 1px solid #ccc;")
-        self.label_chart_daily_flow.setAlignment(Qt.AlignCenter)
+        self.label_chart_daily_flow.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.verticalLayout_Output.addWidget(self.label_chart_daily_flow)
 
@@ -131,7 +131,7 @@ class Ui_Form(object):
         self.label_chart_flow_duration.setObjectName(u"label_chart_flow_duration")
         self.label_chart_flow_duration.setMinimumSize(QSize(0, 200))
         self.label_chart_flow_duration.setStyleSheet(u"background-color: #f0f0f0; border: 1px solid #ccc;")
-        self.label_chart_flow_duration.setAlignment(Qt.AlignCenter)
+        self.label_chart_flow_duration.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.verticalLayout_Output.addWidget(self.label_chart_flow_duration)
 

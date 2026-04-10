@@ -1,0 +1,30 @@
+name: Release QGIS Plugin
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install qgis-plugin-ci
+        run: pip install qgis-plugin-ci
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Extract version from the tag (e.g., 'v0.1.0' -> 'v0.1.0' or just '0.1.0' depending on how qgis-plugin-ci parses it; it usually matches the metadata.txt)
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          # We can just say: generate the package and release it
+          qgis-plugin-ci release ${TAG_NAME} --github-token ${GITHUB_TOKEN}
