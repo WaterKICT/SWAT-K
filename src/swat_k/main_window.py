@@ -215,7 +215,7 @@ class MainWindow(QWidget):
         # 첫 번째 컬럼(인덱스)을 제외한 나머지 컬럼명을 정수형으로 변환
         # 'Unnamed'로 시작하는 컬럼은 건너뛰기
         df.columns = [
-            int(col) if not str(col).startswith('Unnamed') else col
+            int(col) if not str(col).startswith("Unnamed") else col
             for col in df.columns
         ]
         # 숫자 컬럼만 필터링
