@@ -30,6 +30,7 @@ except ImportError:
         QVBoxLayout,
     )
 
+from swat_k.core.formula import DEFAULT_FORMULA, validate_formula
 from swat_k.utils import settings
 
 
@@ -39,7 +40,7 @@ class RunDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("[SWAT-K] Run - Converter 실행")
-        self.resize(600, 320)
+        self.resize(620, 320)
         self._init_ui()
         self._load_saved_settings()
 
@@ -65,32 +66,37 @@ class RunDialog(QDialog):
         layout_exe.addWidget(self.btn_browse_exe)
         form_layout.addRow("Converter 프로그램 (.exe):", layout_exe)
 
-        # RCH 파일 지정
+        # RCH 파일 경로 선택
         self.lineEdit_rch = QLineEdit(self)
-        self.lineEdit_rch.setPlaceholderText("RCH 또는 CSV 파일 경로를 선택하세요")
+        self.lineEdit_rch.setPlaceholderText("RCH 파일 경로를 선택하세요")
         self.btn_browse_rch = QPushButton("찾아보기...", self)
         self.btn_browse_rch.clicked.connect(self._browse_rch_file)
 
         layout_rch = QHBoxLayout()
         layout_rch.addWidget(self.lineEdit_rch)
         layout_rch.addWidget(self.btn_browse_rch)
-        form_layout.addRow("RCH file 지정:", layout_rch)
+        form_layout.addRow("RCH 파일 경로:", layout_rch)
 
-        # CIO 파일 지정
+        # CIO 파일 경로 선택
         self.lineEdit_cio = QLineEdit(self)
-        self.lineEdit_cio.setPlaceholderText("CIO 또는 CSV 파일 경로를 선택하세요")
+        self.lineEdit_cio.setPlaceholderText("CIO 파일 경로를 선택하세요")
         self.btn_browse_cio = QPushButton("찾아보기...", self)
         self.btn_browse_cio.clicked.connect(self._browse_cio_file)
 
         layout_cio = QHBoxLayout()
         layout_cio.addWidget(self.lineEdit_cio)
         layout_cio.addWidget(self.btn_browse_cio)
-        form_layout.addRow("CIO file 지정:", layout_cio)
+        form_layout.addRow("CIO 파일 경로:", layout_cio)
 
-        # 시작 연도 (start year)
-        self.lineEdit_year = QLineEdit(self)
-        self.lineEdit_year.setPlaceholderText("예: 1980")
-        form_layout.addRow("시작 연도 (start year):", self.lineEdit_year)
+        # 사용자 정의 식
+        self.lineEdit_formula = QLineEdit(self)
+        self.lineEdit_formula.setText(DEFAULT_FORMULA)
+        self.lineEdit_formula.setPlaceholderText(DEFAULT_FORMULA)
+        self.lineEdit_formula.setToolTip(
+            "v0, v1, v2 변수가 반드시 포함되어야 하며,\n"
+            "사칙연산(+, -, *, /)과 괄호만 허용됩니다."
+        )
+        form_layout.addRow("사용자 정의 식:", self.lineEdit_formula)
 
         main_layout.addWidget(group_box)
 
@@ -116,23 +122,23 @@ class RunDialog(QDialog):
         saved_exe = settings.get_converter_exe_path()
         saved_rch = settings.get_rch_path()
         saved_cio = settings.get_cio_path()
-        saved_year = settings.get_start_year()
+        saved_formula = settings.get_custom_formula()
 
-        if saved_exe:
+        if saved_exe and Path(saved_exe).is_file():
             self.lineEdit_exe.setText(saved_exe)
-        if saved_rch:
+        if saved_rch and Path(saved_rch).is_file():
             self.lineEdit_rch.setText(saved_rch)
-        if saved_cio:
+        if saved_cio and Path(saved_cio).is_file():
             self.lineEdit_cio.setText(saved_cio)
-        if saved_year:
-            self.lineEdit_year.setText(saved_year)
+        if saved_formula:
+            self.lineEdit_formula.setText(saved_formula)
 
     def _save_current_settings(self):
         """현재 입력된 경로 및 설정값 저장"""
         settings.set_converter_exe_path(self.lineEdit_exe.text().strip())
         settings.set_rch_path(self.lineEdit_rch.text().strip())
         settings.set_cio_path(self.lineEdit_cio.text().strip())
-        settings.set_start_year(self.lineEdit_year.text().strip())
+        settings.set_custom_formula(self.lineEdit_formula.text().strip())
 
     @pyqtSlot()
     def _browse_exe_file(self):
@@ -197,7 +203,7 @@ class RunDialog(QDialog):
         exe_path = self.lineEdit_exe.text().strip()
         rch_path = self.lineEdit_rch.text().strip()
         cio_path = self.lineEdit_cio.text().strip()
-        start_year = self.lineEdit_year.text().strip()
+        formula = self.lineEdit_formula.text().strip()
 
         if not exe_path:
             QMessageBox.warning(
@@ -205,27 +211,47 @@ class RunDialog(QDialog):
             )
             return
 
+        if not Path(exe_path).is_file():
+            QMessageBox.warning(
+                self,
+                "파일 오류",
+                "지정된 Converter 프로그램(.exe)이 존재하지 않습니다.",
+            )
+            return
+
         if not rch_path:
             QMessageBox.warning(self, "입력 오류", "RCH 파일을 지정해주세요.")
+            return
+
+        if not Path(rch_path).is_file():
+            QMessageBox.warning(
+                self, "파일 오류", "지정된 RCH 파일이 존재하지 않습니다."
+            )
             return
 
         if not cio_path:
             QMessageBox.warning(self, "입력 오류", "CIO 파일을 지정해주세요.")
             return
 
-        if start_year and not start_year.isdigit():
-            QMessageBox.warning(self, "입력 오류", "시작 연도는 숫자여야 합니다.")
+        if not Path(cio_path).is_file():
+            QMessageBox.warning(
+                self, "파일 오류", "지정된 CIO 파일이 존재하지 않습니다."
+            )
+            return
+
+        is_valid, err_msg = validate_formula(formula)
+        if not is_valid:
+            QMessageBox.warning(self, "수식 입력 오류", err_msg)
             return
 
         # 설정값 영속화
         self._save_current_settings()
 
-        # 사용자 요청 사항: 아직 실행 인자 규격이 미정이므로 안내 메시지 출력
         info_msg = (
             "SWAT-K Converter 연동 기능은 현재 개발 중입니다.\n\n"
             f"• 지정된 실행 파일:\n  {exe_path}\n"
             f"• RCH 파일:\n  {rch_path}\n"
             f"• CIO 파일:\n  {cio_path}\n"
-            f"• 시작 연도: {start_year if start_year else '미지정'}"
+            f"• 사용자 정의 식:\n  {formula}"
         )
         QMessageBox.information(self, "안내", info_msg)

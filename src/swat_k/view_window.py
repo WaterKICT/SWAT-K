@@ -205,9 +205,9 @@ class ViewDialog(QDialog):
         saved_cio = settings.get_cio_path()
         saved_year = settings.get_start_year()
 
-        if saved_rch:
+        if saved_rch and Path(saved_rch).is_file():
             self.lineEdit_rch.setText(saved_rch)
-        if saved_cio:
+        if saved_cio and Path(saved_cio).is_file():
             self.lineEdit_cio.setText(saved_cio)
         if saved_year:
             self.lineEdit_year.setText(saved_year)

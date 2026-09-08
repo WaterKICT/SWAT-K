@@ -5,6 +5,8 @@ try:
 except ImportError:
     from PySide6.QtCore import QSettings
 
+from swat_k.core.formula import DEFAULT_FORMULA
+
 ORGANIZATION = "KICT"
 APPLICATION = "SWAT-K"
 
@@ -12,6 +14,7 @@ KEY_CONVERTER_EXE = "converter_exe_path"
 KEY_RCH_PATH = "rch_file_path"
 KEY_CIO_PATH = "cio_file_path"
 KEY_START_YEAR = "start_year"
+KEY_CUSTOM_FORMULA = "custom_formula"
 
 
 def _get_settings() -> QSettings:
@@ -48,3 +51,12 @@ def get_start_year() -> str:
 
 def set_start_year(year: str) -> None:
     _get_settings().setValue(KEY_START_YEAR, year)
+
+
+def get_custom_formula() -> str:
+    val = _get_settings().value(KEY_CUSTOM_FORMULA, "")
+    return str(val) if val else DEFAULT_FORMULA
+
+
+def set_custom_formula(formula: str) -> None:
+    _get_settings().setValue(KEY_CUSTOM_FORMULA, formula)
