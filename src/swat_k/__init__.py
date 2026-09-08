@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 def classFactory(iface):
     """Load SwatKPlugin class from file plugin.
 
@@ -6,4 +5,5 @@ def classFactory(iface):
     :type iface: QgsInterface
     """
     from .plugin import SwatKPlugin
+
     return SwatKPlugin(iface)
