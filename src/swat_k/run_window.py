@@ -1,22 +1,25 @@
-"""[SWAT-K] Run 대화상자 모듈"""
-
+import subprocess
+import tempfile
+import time
 from pathlib import Path
 
 try:
-    from qgis.PyQt.QtCore import Qt, pyqtSlot
+    from qgis.PyQt.QtCore import Qt, QThread, pyqtSignal, pyqtSlot
     from qgis.PyQt.QtWidgets import (
         QDialog,
         QFileDialog,
         QFormLayout,
         QGroupBox,
         QHBoxLayout,
+        QLabel,
         QLineEdit,
         QMessageBox,
         QPushButton,
         QVBoxLayout,
     )
 except ImportError:
-    from PySide6.QtCore import Qt
+    from PySide6.QtCore import Qt, QThread
+    from PySide6.QtCore import Signal as pyqtSignal
     from PySide6.QtCore import Slot as pyqtSlot
     from PySide6.QtWidgets import (
         QDialog,
@@ -24,6 +27,7 @@ except ImportError:
         QFormLayout,
         QGroupBox,
         QHBoxLayout,
+        QLabel,
         QLineEdit,
         QMessageBox,
         QPushButton,
@@ -34,13 +38,91 @@ from swat_k.core.formula import DEFAULT_FORMULA, validate_formula
 from swat_k.utils import settings
 
 
+class ConverterWorker(QThread):
+    """외부 Converter 프로그램을 독립 콘솔 창에서 비동기로 실행하는 워커 스레드"""
+
+    finished_signal = pyqtSignal(int)
+    error_signal = pyqtSignal(str)
+
+    def __init__(
+        self,
+        exe_path: str,
+        arguments: list[str],
+        working_dir: str,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.exe_path = exe_path
+        self.arguments = arguments
+        self.working_dir = working_dir
+        self._process = None
+        self._bat_file = None
+
+    def run(self):
+        try:
+            # cmd.exe 기반 런처 배치 파일 생성:
+            # 1. cmd.exe가 표준 입출력(CONOUT$)을 활성 콘솔 버퍼에 정상 바인딩
+            # 2. 오류 발생 시 창이 바로 꺼지지 않고 일시정지(pause)
+            timestamp = int(time.time() * 1000)
+            self._bat_file = Path(tempfile.gettempdir()) / f"swat_k_run_{timestamp}.bat"
+
+            args_str = " ".join(f'"{arg}"' for arg in self.arguments)
+            bat_content = (
+                "@echo off\r\n"
+                "chcp 65001 > nul\r\n"
+                "title SWAT-K Converter\r\n"
+                f'cd /d "{self.working_dir}"\r\n'
+                f'"{self.exe_path}" {args_str}\r\n'
+                "set EXIT_CODE=%ERRORLEVEL%\r\n"
+                "if %EXIT_CODE% equ 0 (\r\n"
+                "    echo.\r\n"
+                "    echo [완료] 변환 작업이 완료되었습니다. (2초 후 닫힙니다)\r\n"
+                "    timeout /t 2 > nul\r\n"
+                ") else (\r\n"
+                "    echo.\r\n"
+                "    echo =======================================================\r\n"
+                "    echo [오류] 변환 실패 (종료 코드: %EXIT_CODE%)\r\n"
+                "    echo 메시지 확인 후 창을 닫으려면 아무 키나 누르세요...\r\n"
+                "    echo =======================================================\r\n"
+                "    pause > nul\r\n"
+                ")\r\n"
+                "exit /b %EXIT_CODE%\r\n"
+            )
+            self._bat_file.write_text(bat_content, encoding="utf-8")
+
+            self._process = subprocess.Popen(
+                ["cmd.exe", "/c", str(self._bat_file)],
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+                cwd=self.working_dir,
+            )
+            exit_code = self._process.wait()
+            self.finished_signal.emit(exit_code)
+        except Exception as e:
+            self.error_signal.emit(str(e))
+        finally:
+            if self._bat_file and self._bat_file.exists():
+                try:
+                    self._bat_file.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+    def terminate_process(self):
+        """프로세스 안전 종료"""
+        if self._process and self._process.poll() is None:
+            try:
+                self._process.kill()
+            except Exception:
+                pass
+
+
 class RunDialog(QDialog):
     """SWAT-K Converter 실행 설정 및 입력 파일 지정 대화상자"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("[SWAT-K] Run - Converter 실행")
-        self.resize(620, 320)
+        self.resize(620, 340)
+        self.worker: ConverterWorker | None = None
         self._init_ui()
         self._load_saved_settings()
 
@@ -100,7 +182,12 @@ class RunDialog(QDialog):
 
         main_layout.addWidget(group_box)
 
-        # 2. 하단 실행 및 닫기 버튼
+        # 2. 실행 상태 라벨
+        self.label_status = QLabel("", self)
+        self.label_status.setStyleSheet("font-size: 11px;")
+        main_layout.addWidget(self.label_status)
+
+        # 3. 하단 실행 및 닫기 버튼
         button_layout = QHBoxLayout()
         button_layout.addStretch()
 
@@ -247,11 +334,77 @@ class RunDialog(QDialog):
         # 설정값 영속화
         self._save_current_settings()
 
-        info_msg = (
-            "SWAT-K Converter 연동 기능은 현재 개발 중입니다.\n\n"
-            f"• 지정된 실행 파일:\n  {exe_path}\n"
-            f"• RCH 파일:\n  {rch_path}\n"
-            f"• CIO 파일:\n  {cio_path}\n"
-            f"• 사용자 정의 식:\n  {formula}"
+        # Converter CLI 실행 인자: <rch_path> <cio_path> "<formula>"
+        arguments = [rch_path, cio_path, formula]
+        working_dir = str(Path(exe_path).parent)
+
+        # UI 상태 업데이트 (실행 중 표시)
+        self.btn_run.setEnabled(False)
+        self.btn_run.setText("변환 작업 진행 중...")
+        self.label_status.setText(
+            "Converter 콘솔 창에서 데이터 변환이 진행 중입니다..."
         )
-        QMessageBox.information(self, "안내", info_msg)
+        self.label_status.setStyleSheet("color: #2563EB; font-weight: bold;")
+
+        # 백그라운드 워커 스레드 시작 (새 콘솔 창 생성으로 커서 조작 예외 방지)
+        self.worker = ConverterWorker(exe_path, arguments, working_dir, parent=self)
+        self.worker.finished_signal.connect(self._on_conversion_finished)
+        self.worker.error_signal.connect(self._on_conversion_error)
+        self.worker.start()
+
+    @pyqtSlot(int)
+    def _on_conversion_finished(self, exit_code: int):
+        """Converter 프로세스 종료 시 슬롯"""
+        self.btn_run.setEnabled(True)
+        self.btn_run.setText("Converter 실행")
+
+        if exit_code == 0:
+            self.label_status.setText("변환 작업이 성공적으로 완료되었습니다.")
+            self.label_status.setStyleSheet("color: #16A34A; font-weight: bold;")
+            QMessageBox.information(
+                self,
+                "변환 완료",
+                "SWAT-K Converter 변환 작업이 성공적으로 완료되었습니다.",
+            )
+        else:
+            self.label_status.setText(
+                f"변환 작업 중 오류가 발생했습니다 (종료 코드: {exit_code})."
+            )
+            self.label_status.setStyleSheet("color: #DC2626; font-weight: bold;")
+            QMessageBox.critical(
+                self,
+                "변환 오류",
+                f"Converter 실행 중 오류가 발생했습니다 (종료 코드: {exit_code}).",
+            )
+
+    @pyqtSlot(str)
+    def _on_conversion_error(self, error_msg: str):
+        """프로세스 실행 실패 슬롯"""
+        self.btn_run.setEnabled(True)
+        self.btn_run.setText("Converter 실행")
+        self.label_status.setText("변환 실행 중 오류가 발생했습니다.")
+        self.label_status.setStyleSheet("color: #DC2626; font-weight: bold;")
+        QMessageBox.critical(
+            self,
+            "실행 오류",
+            f"Converter 프로세스를 실행하는 중 오류가 발생했습니다:\n{error_msg}",
+        )
+
+    def closeEvent(self, event):
+        """대화상자 닫기 시 실행 중인 프로세스 확인"""
+        if self.worker and self.worker.isRunning():
+            reply = QMessageBox.question(
+                self,
+                "작업 중단 확인",
+                "변환 작업이 아직 실행 중입니다. 중단하고 창을 닫으시겠습니까?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self.worker.terminate_process()
+                self.worker.wait(2000)
+                event.accept()
+            else:
+                event.ignore()
+        else:
+            event.accept()
