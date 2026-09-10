@@ -432,6 +432,20 @@ class RunDialog(QDialog):
             )
             return
 
+        stream_shp = self.lineEdit_stream_shp.text().strip()
+        if stream_shp and not Path(stream_shp).is_file():
+            QMessageBox.warning(
+                self, "파일 오류", "지정된 하천망 Shapefile이 존재하지 않습니다."
+            )
+            return
+
+        subbasin_shp = self.lineEdit_subbasin_shp.text().strip()
+        if subbasin_shp and not Path(subbasin_shp).is_file():
+            QMessageBox.warning(
+                self, "파일 오류", "지정된 소유역 Shapefile이 존재하지 않습니다."
+            )
+            return
+
         is_valid, err_msg = validate_formula(formula)
         if not is_valid:
             QMessageBox.warning(self, "수식 입력 오류", err_msg)
@@ -485,6 +499,8 @@ class RunDialog(QDialog):
                     )
                     if success:
                         map_msg = f"\n\n[QGIS 지도]\n{render_msg}"
+                    else:
+                        map_msg = f"\n\n[QGIS 지도 등록 실패]\n{render_msg}"
 
             QMessageBox.information(
                 self,

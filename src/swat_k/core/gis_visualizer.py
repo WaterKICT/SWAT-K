@@ -261,7 +261,6 @@ def render_swat_layers_to_qgis(
     """
     try:
         from qgis.core import (
-            QColor,
             QgsFeature,
             QgsField,
             QgsFields,
@@ -274,6 +273,7 @@ def render_swat_layers_to_qgis(
             QgsVectorLayer,
         )
         from qgis.PyQt.QtCore import QVariant
+        from qgis.PyQt.QtGui import QColor
     except ImportError:
         return False, "QGIS Python API(qgis.core)를 로드할 수 없는 환경입니다."
 
@@ -316,9 +316,10 @@ def render_swat_layers_to_qgis(
         )
 
     # 원본 Shapefile을 보호하기 위해 QGIS 메모리 벡터 레이어(LineString) 생성
-    crs_str = stream_orig.crs().authid() or "EPSG:5179"
     stream_layer_name = f"하천망 유량 (Streamflow){year_label}"
-    mem_layer = QgsVectorLayer(f"LineString?crs={crs_str}", stream_layer_name, "memory")
+    mem_layer = QgsVectorLayer("LineString", stream_layer_name, "memory")
+    if stream_orig.crs().isValid():
+        mem_layer.setCrs(stream_orig.crs())
     mem_dp = mem_layer.dataProvider()
 
     # 원본 필드 복제 + 유량 및 하천번호 필드 추가
