@@ -20,7 +20,6 @@ try:
         QGroupBox,
         QHBoxLayout,
         QLabel,
-        QLineEdit,
         QMessageBox,
         QPushButton,
         QScrollArea,
@@ -38,7 +37,6 @@ except ImportError:
         QGroupBox,
         QHBoxLayout,
         QLabel,
-        QLineEdit,
         QMessageBox,
         QPushButton,
         QScrollArea,
@@ -71,48 +69,7 @@ class ViewDialog(QDialog):
         root_layout.setContentsMargins(12, 12, 12, 12)
         root_layout.setSpacing(10)
 
-        # 1. 파일 및 연도 선택 영역
-        input_group = QGroupBox("데이터 소스 선택", self)
-        input_layout = QFormLayout(input_group)
-        input_layout.setSpacing(8)
-
-        # RCH 파일 경로
-        self.lineEdit_rch = QLineEdit(self)
-        self.lineEdit_rch.setPlaceholderText("RCH 또는 CSV 파일 경로")
-        self.btn_browse_rch = QPushButton("찾아보기...", self)
-        self.btn_browse_rch.clicked.connect(self._browse_rch_file)
-        layout_rch = QHBoxLayout()
-        layout_rch.addWidget(self.lineEdit_rch)
-        layout_rch.addWidget(self.btn_browse_rch)
-        input_layout.addRow("RCH file:", layout_rch)
-
-        # CIO 파일 경로
-        self.lineEdit_cio = QLineEdit(self)
-        self.lineEdit_cio.setPlaceholderText("CIO 또는 CSV 파일 경로")
-        self.btn_browse_cio = QPushButton("찾아보기...", self)
-        self.btn_browse_cio.clicked.connect(self._browse_cio_file)
-        layout_cio = QHBoxLayout()
-        layout_cio.addWidget(self.lineEdit_cio)
-        layout_cio.addWidget(self.btn_browse_cio)
-        input_layout.addRow("CIO file:", layout_cio)
-
-        # 시작 연도 및 조회 버튼
-        self.lineEdit_year = QLineEdit(self)
-        self.lineEdit_year.setPlaceholderText("예: 1980")
-        self.btn_refresh = QPushButton("차트 조회 / 갱신", self)
-        self.btn_refresh.setStyleSheet(
-            "QPushButton { font-weight: bold; padding: 5px 16px; }"
-        )
-        self.btn_refresh.clicked.connect(self._render_data)
-
-        layout_year = QHBoxLayout()
-        layout_year.addWidget(self.lineEdit_year)
-        layout_year.addWidget(self.btn_refresh)
-        input_layout.addRow("시작 연도:", layout_year)
-
-        root_layout.addWidget(input_group)
-
-        # 2. 스크롤 영역 (차트 2개 및 통계 결과)
+        # 1. 스크롤 영역 (차트 2개 및 통계 결과)
         scroll_area = QScrollArea(self)
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QFrame.Shape.NoFrame)
@@ -168,13 +125,19 @@ class ViewDialog(QDialog):
         scroll_area.setWidget(container)
         root_layout.addWidget(scroll_area, 1)
 
-        # 3. 하단 액션 버튼
+        # 2. 하단 액션 버튼
         bottom_layout = QHBoxLayout()
+        self.btn_refresh = QPushButton("차트 새로고침", self)
+        self.btn_refresh.setStyleSheet(
+            "QPushButton { font-weight: bold; padding: 5px 16px; }"
+        )
+        self.btn_refresh.clicked.connect(self._render_data)
         self.btn_save_charts = QPushButton("차트 이미지 저장", self)
         self.btn_save_charts.clicked.connect(self._save_current_charts)
         self.btn_close = QPushButton("닫기", self)
         self.btn_close.clicked.connect(self.close)
 
+        bottom_layout.addWidget(self.btn_refresh)
         bottom_layout.addWidget(self.btn_save_charts)
         bottom_layout.addStretch()
         bottom_layout.addWidget(self.btn_close)
@@ -200,23 +163,14 @@ class ViewDialog(QDialog):
         self.ax_duration.grid(True, which="both", linestyle="--", alpha=0.5)
 
     def _load_saved_settings(self):
-        """저장된 파일 경로 및 시작 연도 불러오기"""
-        saved_rch = settings.get_rch_path()
-        saved_cio = settings.get_cio_path()
-        saved_year = settings.get_start_year()
-
-        if saved_rch and Path(saved_rch).is_file():
-            self.lineEdit_rch.setText(saved_rch)
-        if saved_cio and Path(saved_cio).is_file():
-            self.lineEdit_cio.setText(saved_cio)
-        if saved_year:
-            self.lineEdit_year.setText(saved_year)
+        """저장된 설정 불러오기"""
+        pass
 
     def _auto_load_if_ready(self):
         """기존 설정 파일이 유효하면 자동으로 차트 렌더링"""
-        rch_path = self.lineEdit_rch.text().strip()
-        cio_path = self.lineEdit_cio.text().strip()
-        year_str = self.lineEdit_year.text().strip()
+        rch_path = settings.get_rch_path()
+        cio_path = settings.get_cio_path()
+        year_str = settings.get_start_year()
 
         if (
             rch_path
@@ -228,73 +182,32 @@ class ViewDialog(QDialog):
             self._render_data(silent_error=True)
 
     @pyqtSlot()
-    def _browse_rch_file(self):
-        current_dir = ""
-        if self.lineEdit_rch.text():
-            p = Path(self.lineEdit_rch.text())
-            if p.parent.exists():
-                current_dir = str(p.parent)
-
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "RCH 파일 선택",
-            current_dir,
-            "RCH 및 CSV 파일 (*.rch *.csv);;모든 파일 (*)",
-        )
-        if file_path:
-            self.lineEdit_rch.setText(file_path)
-            settings.set_rch_path(file_path)
-
-    @pyqtSlot()
-    def _browse_cio_file(self):
-        current_dir = ""
-        if self.lineEdit_cio.text():
-            p = Path(self.lineEdit_cio.text())
-            if p.parent.exists():
-                current_dir = str(p.parent)
-
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "CIO 파일 선택",
-            current_dir,
-            "CIO 및 CSV 파일 (*.cio *.csv);;모든 파일 (*)",
-        )
-        if file_path:
-            self.lineEdit_cio.setText(file_path)
-            settings.set_cio_path(file_path)
-
-    @pyqtSlot()
     def _render_data(self, silent_error=False):
         """데이터를 불러와 차트 및 통계 결과를 갱신"""
-        rch_file = self.lineEdit_rch.text().strip()
-        cio_file = self.lineEdit_cio.text().strip()
-        year_str = self.lineEdit_year.text().strip()
+        rch_file = settings.get_rch_path()
+        cio_file = settings.get_cio_path()
+        year_str = settings.get_start_year()
 
         if not rch_file or not Path(rch_file).is_file():
             if not silent_error:
                 QMessageBox.warning(
-                    self, "입력 오류", "유효한 RCH 파일을 지정해주세요."
+                    self, "설정 확인", "설정된 RCH 파일이 존재하지 않습니다."
                 )
             return
 
         if not cio_file or not Path(cio_file).is_file():
             if not silent_error:
                 QMessageBox.warning(
-                    self, "입력 오류", "유효한 CIO 파일을 지정해주세요."
+                    self, "설정 확인", "설정된 CIO 파일이 존재하지 않습니다."
                 )
             return
 
-        if not year_str.isdigit():
+        if not str(year_str).isdigit():
             if not silent_error:
-                QMessageBox.warning(self, "입력 오류", "시작 연도는 숫자여야 합니다.")
+                QMessageBox.warning(self, "설정 확인", "유효한 시작 연도가 설정되지 않았습니다.")
             return
 
         year_int = int(year_str)
-
-        # 설정값 업데이트
-        settings.set_rch_path(rch_file)
-        settings.set_cio_path(cio_file)
-        settings.set_start_year(year_str)
 
         try:
             # 1. RCH 데이터 로드 및 필터링
@@ -388,7 +301,7 @@ class ViewDialog(QDialog):
             return
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        year_str = self.lineEdit_year.text().strip() or "chart"
+        year_str = settings.get_start_year() or "chart"
         p_daily = Path(save_dir) / f"daily_flow_{year_str}_{timestamp}.png"
         p_duration = Path(save_dir) / f"flow_duration_{year_str}_{timestamp}.png"
 
