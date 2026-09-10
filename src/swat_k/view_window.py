@@ -8,6 +8,7 @@ import pandas as pd
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
+from swat_k.core.gis_visualizer import load_reach_flows, render_swat_layers_to_qgis
 from swat_k.utils import settings
 
 try:
@@ -52,8 +53,9 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 class ViewDialog(QDialog):
     """SWAT 데이터 차트 시각화 및 결과 조회 대화상자"""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, iface=None):
         super().__init__(parent)
+        self.iface = iface
         self.setWindowTitle("[SWAT-K] View - 데이터 시각화")
         self.resize(880, 820)
         self.setMinimumSize(640, 500)
@@ -132,12 +134,22 @@ class ViewDialog(QDialog):
             "QPushButton { font-weight: bold; padding: 5px 16px; }"
         )
         self.btn_refresh.clicked.connect(self._render_data)
+
+        self.btn_show_map = QPushButton("QGIS 지도에 표시", self)
+        self.btn_show_map.setStyleSheet(
+            "QPushButton { font-weight: bold; background-color: #2563EB; "
+            "color: white; padding: 5px 16px; border-radius: 4px; }"
+            "QPushButton:hover { background-color: #1D4ED8; }"
+        )
+        self.btn_show_map.clicked.connect(self._show_on_qgis_map)
+
         self.btn_save_charts = QPushButton("차트 이미지 저장", self)
         self.btn_save_charts.clicked.connect(self._save_current_charts)
         self.btn_close = QPushButton("닫기", self)
         self.btn_close.clicked.connect(self.close)
 
         bottom_layout.addWidget(self.btn_refresh)
+        bottom_layout.addWidget(self.btn_show_map)
         bottom_layout.addWidget(self.btn_save_charts)
         bottom_layout.addStretch()
         bottom_layout.addWidget(self.btn_close)
@@ -204,7 +216,9 @@ class ViewDialog(QDialog):
 
         if not str(year_str).isdigit():
             if not silent_error:
-                QMessageBox.warning(self, "설정 확인", "유효한 시작 연도가 설정되지 않았습니다.")
+                QMessageBox.warning(
+                    self, "설정 확인", "유효한 시작 연도가 설정되지 않았습니다."
+                )
             return
 
         year_int = int(year_str)
@@ -292,6 +306,42 @@ class ViewDialog(QDialog):
             self.ax_duration.legend(loc="upper right")
 
         self.canvas_duration.draw()
+
+    @pyqtSlot()
+    def _show_on_qgis_map(self):
+        """현재 조회된 연도/유량 데이터를 기반으로 하천망을 QGIS 지도에 시각화"""
+        stream_shp = settings.get_stream_shp_path()
+        subbasin_shp = settings.get_subbasin_shp_path()
+        rch_path = settings.get_rch_path()
+        year_str = settings.get_start_year()
+
+        if not stream_shp or not Path(stream_shp).is_file():
+            QMessageBox.warning(
+                self,
+                "하천망 Shapefile 미설정",
+                "등록된 하천망 Shapefile이 없습니다.\n\n"
+                "[SWAT-K] Run 대화상자에서 하천망 Shapefile(.shp)을 먼저 지정해주세요.",
+            )
+            return
+
+        year_int = int(year_str) if str(year_str).isdigit() else None
+        year_label = f" ({year_int}년)" if year_int else ""
+
+        # 유량 데이터 추출
+        flow_data = load_reach_flows(rch_path, year=year_int, aggregate_mode="max")
+
+        success, msg = render_swat_layers_to_qgis(
+            stream_shp_path=stream_shp,
+            subbasin_shp_path=subbasin_shp,
+            flow_data=flow_data,
+            year_label=year_label,
+            iface=self.iface,
+        )
+
+        if success:
+            QMessageBox.information(self, "QGIS 지도 표출 완료", msg)
+        else:
+            QMessageBox.warning(self, "QGIS 지도 표출 실패", msg)
 
     @pyqtSlot()
     def _save_current_charts(self):

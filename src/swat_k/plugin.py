@@ -61,7 +61,7 @@ class SwatKPlugin:
     def run_converter(self):
         """[SWAT-K] Run 대화상자 열기"""
         if not self.run_dialog:
-            self.run_dialog = RunDialog(self.iface.mainWindow())
+            self.run_dialog = RunDialog(self.iface.mainWindow(), iface=self.iface)
         self.run_dialog.show()
         self.run_dialog.raise_()
         self.run_dialog.activateWindow()
@@ -69,7 +69,7 @@ class SwatKPlugin:
     def open_view(self):
         """[SWAT-K] View 대화상자 열기"""
         if not self.view_dialog:
-            self.view_dialog = ViewDialog(self.iface.mainWindow())
+            self.view_dialog = ViewDialog(self.iface.mainWindow(), iface=self.iface)
         self.view_dialog.show()
         self.view_dialog.raise_()
         self.view_dialog.activateWindow()

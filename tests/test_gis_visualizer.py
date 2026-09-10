@@ -1,0 +1,112 @@
+"""SWAT GIS 시각화 모듈 단위 테스트"""
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from swat_k.core.gis_visualizer import (
+    detect_reach_id_field,
+    find_paired_subbasin_shp,
+    load_reach_flows,
+)
+from swat_k.utils import settings
+
+
+class TestGisVisualizer(unittest.TestCase):
+    """GIS 시각화 핵심 함수 테스트"""
+
+    def test_detect_reach_id_field(self):
+        """속성 필드명으로부터 하천 번호(Reach ID) 필드 감지 검증"""
+        # 1. 일반적인 ArcSWAT 필드
+        fields_arcswat = ["OBJECTID", "ARCID", "GRID_CODE", "Subbasin", "AreaC"]
+        self.assertEqual(detect_reach_id_field(fields_arcswat), "Subbasin")
+
+        # 2. 대소문자 혼용
+        fields_case = ["fid", "SUBBASIN", "shape_length"]
+        self.assertEqual(detect_reach_id_field(fields_case), "SUBBASIN")
+
+        # 3. QSWAT 및 기타 명칭
+        fields_qswat = ["id", "SubId", "Channel", "Slope"]
+        self.assertEqual(detect_reach_id_field(fields_qswat), "SubId")
+
+        # 4. 후보 필드가 없을 때
+        fields_none = ["name", "elevation", "type"]
+        self.assertIsNone(detect_reach_id_field(fields_none))
+
+    def test_find_paired_subbasin_shp(self):
+        """하천망 Shapefile 경로로부터 같은 폴더 내 소유역 파일 자동 탐색 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+            stream_file = tmppath / "riv1.shp"
+            stream_file.touch()
+
+            # 1. 소유역 파일이 없을 때 -> 빈 문자열
+            self.assertEqual(find_paired_subbasin_shp(str(stream_file)), "")
+
+            # 2. subs1.shp 파일 생성 시 자동 탐지
+            sub_file = tmppath / "subs1.shp"
+            sub_file.touch()
+
+            paired = find_paired_subbasin_shp(str(stream_file))
+            self.assertEqual(Path(paired).name.lower(), "subs1.shp")
+
+    def test_find_paired_custom_names(self):
+        """커스텀 파일명(watershed, sub)에 대한 자동 추천 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+            stream_file = tmppath / "my_stream_network.shp"
+            stream_file.touch()
+
+            sub_file = tmppath / "watershed_boundary.shp"
+            sub_file.touch()
+
+            paired = find_paired_subbasin_shp(str(stream_file))
+            self.assertEqual(Path(paired).name.lower(), "watershed_boundary.shp")
+
+    def test_load_reach_flows_from_csv(self):
+        """전체 Reach 통합 CSV 파일로부터 유량 추출 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+            rch_base = tmppath / "output.rch"
+            rch_base.touch()
+
+            all_csv = tmppath / "output.rch_all.csv"
+            # 샘플 데이터 생성
+            all_csv.write_text(
+                ",1,2,3\n"
+                "2020-01-01,10.5,20.2,5.1\n"
+                "2020-01-02,15.8,18.0,6.2\n"
+                "2021-01-01,30.0,40.0,12.0\n",
+                encoding="utf-8",
+            )
+
+            # 2020년 최대 유량 추출
+            flows_2020 = load_reach_flows(
+                str(rch_base), year=2020, aggregate_mode="max"
+            )
+            self.assertEqual(flows_2020.get(1), 15.8)
+            self.assertEqual(flows_2020.get(2), 20.2)
+            self.assertEqual(flows_2020.get(3), 6.2)
+
+            # 2021년 최대 유량 추출
+            flows_2021 = load_reach_flows(
+                str(rch_base), year=2021, aggregate_mode="max"
+            )
+            self.assertEqual(flows_2021.get(1), 30.0)
+            self.assertEqual(flows_2021.get(2), 40.0)
+            self.assertEqual(flows_2021.get(3), 12.0)
+
+    def test_settings_stream_and_subbasin_path(self):
+        """Shapefile 경로 QSettings 저장 및 복원 검증"""
+        test_stream = r"C:\data\shapes\riv1.shp"
+        test_sub = r"C:\data\shapes\subs1.shp"
+
+        settings.set_stream_shp_path(test_stream)
+        settings.set_subbasin_shp_path(test_sub)
+
+        self.assertEqual(settings.get_stream_shp_path(), test_stream)
+        self.assertEqual(settings.get_subbasin_shp_path(), test_sub)
+
+
+if __name__ == "__main__":
+    unittest.main()

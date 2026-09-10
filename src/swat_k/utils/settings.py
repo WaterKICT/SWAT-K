@@ -15,6 +15,8 @@ KEY_RCH_PATH = "rch_file_path"
 KEY_CIO_PATH = "cio_file_path"
 KEY_START_YEAR = "start_year"
 KEY_CUSTOM_FORMULA = "custom_formula"
+KEY_STREAM_SHP_PATH = "stream_shp_path"
+KEY_SUBBASIN_SHP_PATH = "subbasin_shp_path"
 
 
 def _get_settings() -> QSettings:
@@ -60,3 +62,19 @@ def get_custom_formula() -> str:
 
 def set_custom_formula(formula: str) -> None:
     _get_settings().setValue(KEY_CUSTOM_FORMULA, formula)
+
+
+def get_stream_shp_path() -> str:
+    return str(_get_settings().value(KEY_STREAM_SHP_PATH, ""))
+
+
+def set_stream_shp_path(path: str) -> None:
+    _get_settings().setValue(KEY_STREAM_SHP_PATH, path)
+
+
+def get_subbasin_shp_path() -> str:
+    return str(_get_settings().value(KEY_SUBBASIN_SHP_PATH, ""))
+
+
+def set_subbasin_shp_path(path: str) -> None:
+    _get_settings().setValue(KEY_SUBBASIN_SHP_PATH, path)
