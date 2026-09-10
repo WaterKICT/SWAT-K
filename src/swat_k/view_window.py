@@ -1,6 +1,7 @@
 """[SWAT-K] View 시각화 대화상자 모듈"""
 
 from datetime import datetime
+import os
 from pathlib import Path
 
 import matplotlib
@@ -12,8 +13,9 @@ from swat_k.core.gis_visualizer import load_reach_flows, render_swat_layers_to_q
 from swat_k.utils import settings
 
 try:
-    from qgis.PyQt.QtCore import pyqtSlot
+    from qgis.PyQt.QtCore import Qt, pyqtSlot
     from qgis.PyQt.QtWidgets import (
+        QComboBox,
         QDialog,
         QFileDialog,
         QFormLayout,
@@ -21,6 +23,7 @@ try:
         QGroupBox,
         QHBoxLayout,
         QLabel,
+        QLineEdit,
         QMessageBox,
         QPushButton,
         QScrollArea,
@@ -29,8 +32,10 @@ try:
         QWidget,
     )
 except ImportError:
+    from PySide6.QtCore import Qt
     from PySide6.QtCore import Slot as pyqtSlot
     from PySide6.QtWidgets import (
+        QComboBox,
         QDialog,
         QFileDialog,
         QFormLayout,
@@ -38,6 +43,7 @@ except ImportError:
         QGroupBox,
         QHBoxLayout,
         QLabel,
+        QLineEdit,
         QMessageBox,
         QPushButton,
         QScrollArea,
@@ -50,6 +56,143 @@ matplotlib.rcParams["font.family"] = "Malgun Gothic"
 matplotlib.rcParams["axes.unicode_minus"] = False
 
 
+def find_flow_duration_file(data_dir: Path, rch_path: str = "") -> Path | None:
+    """데이터 디렉토리에서 [rch파일이름]_FlowDuration_1.csv 또는 FlowDuration CSV 파일을 탐색합니다.
+
+    Args:
+        data_dir: Swat-K 전용 데이터 폴더 경로
+        rch_path: RCH 파일 경로 (선택)
+
+    Returns:
+        탐색된 FlowDuration CSV의 Path 객체 또는 None
+    """
+    if not data_dir or not data_dir.is_dir():
+        return None
+
+    rch_name = Path(rch_path).name if rch_path else ""
+    rch_stem = Path(rch_path).stem if rch_path else ""
+
+    candidates = []
+    if rch_name:
+        candidates.extend(
+            [
+                data_dir / f"{rch_name}_FlowDuration_1.csv",
+                data_dir / f"{rch_name}_FlowDuration.csv",
+            ]
+        )
+    if rch_stem:
+        candidates.extend(
+            [
+                data_dir / f"{rch_stem}_FlowDuration_1.csv",
+                data_dir / f"{rch_stem}_FlowDuration.csv",
+            ]
+        )
+
+    for c in candidates:
+        if c.is_file():
+            return c
+
+    # 와일드카드 패턴 검색 (*_FlowDuration_1.csv, *_FlowDuration.csv 등)
+    patterns = [
+        "*_FlowDuration_1.csv",
+        "*_FlowDuration.csv",
+        "*_FlowDuration*.csv",
+        "*FlowDuration*.csv",
+    ]
+    for pattern in patterns:
+        matched = sorted(data_dir.glob(pattern))
+        if matched:
+            return matched[0]
+
+    return None
+
+
+def extract_years_from_flow_duration(csv_path: Path | str) -> list[str]:
+    """FlowDuration CSV의 첫 번째 헤더 행에서 연도 목록을 추출합니다.
+
+    Args:
+        csv_path: FlowDuration CSV 파일 경로
+
+    Returns:
+        연도 문자열 목록 (예: ['2013', '2014', ...])
+    """
+    p = Path(csv_path) if csv_path else None
+    if not p or not p.is_file():
+        return []
+    try:
+        with open(p, "r", encoding="utf-8", errors="ignore") as f:
+            header = f.readline().strip()
+        years = []
+        for token in header.split(","):
+            token = token.strip()
+            if token.isdigit() and len(token) == 4:
+                years.append(token)
+        return years
+    except Exception:
+        return []
+
+
+def find_daily_flow_file(data_dir: Path, rch_path: str = "") -> Path | None:
+    """데이터 디렉토리에서 일단위 유량 CSV 파일(reach 1)을 탐색합니다.
+
+    Args:
+        data_dir: Swat-K 전용 데이터 폴더 경로
+        rch_path: RCH 파일 경로 (선택)
+
+    Returns:
+        탐색된 일별 유량 CSV의 Path 객체 또는 None
+    """
+    if not data_dir or not data_dir.is_dir():
+        return None
+
+    rch_name = Path(rch_path).name if rch_path else ""
+    rch_stem = Path(rch_path).stem if rch_path else ""
+
+    candidates = []
+    if (
+        rch_path
+        and Path(rch_path).is_file()
+        and Path(rch_path).suffix.lower() == ".csv"
+    ):
+        candidates.append(Path(rch_path))
+
+    if rch_name:
+        candidates.extend(
+            [
+                data_dir / f"{rch_name}_1.csv",
+                data_dir / f"{rch_name}.csv",
+            ]
+        )
+    if rch_stem:
+        candidates.extend(
+            [
+                data_dir / f"{rch_stem}_1.csv",
+                data_dir / f"{rch_stem}.csv",
+            ]
+        )
+
+    for c in candidates:
+        if c.is_file():
+            return c
+
+    # 와일드카드 패턴 검색 (*_1.csv 등, 단 FlowDuration이나 Max 제외)
+    matched = sorted(data_dir.glob("*_1.csv"))
+    valid = [
+        f
+        for f in matched
+        if not any(k in f.name for k in ["FlowDuration", "Max_step", "all"])
+    ]
+    if valid:
+        return valid[0]
+
+    # _all.csv 확인
+    all_matched = sorted(data_dir.glob("*_all.csv"))
+    if all_matched:
+        return all_matched[0]
+
+    return None
+
+
 class ViewDialog(QDialog):
     """SWAT 데이터 차트 시각화 및 결과 조회 대화상자"""
 
@@ -57,21 +200,55 @@ class ViewDialog(QDialog):
         super().__init__(parent)
         self.iface = iface
         self.setWindowTitle("[SWAT-K] View - 데이터 시각화")
-        self.resize(880, 820)
-        self.setMinimumSize(640, 500)
+        self.resize(880, 860)
+        self.setMinimumSize(640, 520)
 
         self._init_ui()
         self._load_saved_settings()
-
-        # 설정된 파일이 존재할 경우 초기 자동 렌더링 시도
-        self._auto_load_if_ready()
 
     def _init_ui(self):
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(12, 12, 12, 12)
         root_layout.setSpacing(10)
 
-        # 1. 스크롤 영역 (차트 2개 및 통계 결과)
+        # 1. SWAT-K 전용 데이터 폴더 및 대상 연도 설정
+        group_controls = QGroupBox("SWAT-K 데이터 및 대상 연도 설정", self)
+        layout_controls = QFormLayout(group_controls)
+        layout_controls.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        layout_controls.setSpacing(8)
+
+        # Swat-K 전용 데이터 폴더
+        self.lineEdit_data_dir = QLineEdit(self)
+        self.lineEdit_data_dir.setPlaceholderText("Swat-K 전용 데이터 폴더 경로")
+        self.lineEdit_data_dir.editingFinished.connect(self._on_data_dir_edited)
+        self.btn_browse_data_dir = QPushButton("찾아보기...", self)
+        self.btn_browse_data_dir.clicked.connect(self._browse_data_dir)
+
+        layout_data_dir = QHBoxLayout()
+        layout_data_dir.addWidget(self.lineEdit_data_dir)
+        layout_data_dir.addWidget(self.btn_browse_data_dir)
+        layout_controls.addRow("Swat-K 전용 데이터 폴더:", layout_data_dir)
+
+        # 대상 연도 선택 (Combo)
+        self.combo_year = QComboBox(self)
+        self.combo_year.setMinimumWidth(140)
+        self.combo_year.currentTextChanged.connect(self._on_year_changed)
+
+        self.btn_reload_years = QPushButton("새로고침", self)
+        self.btn_reload_years.setToolTip(
+            "데이터 폴더의 FlowDuration CSV 파일에서 연도 목록을 다시 불러옵니다."
+        )
+        self.btn_reload_years.clicked.connect(self._populate_years_from_data_dir)
+
+        layout_year = QHBoxLayout()
+        layout_year.addWidget(self.combo_year)
+        layout_year.addWidget(self.btn_reload_years)
+        layout_year.addStretch()
+        layout_controls.addRow("대상 연도 선택:", layout_year)
+
+        root_layout.addWidget(group_controls)
+
+        # 2. 스크롤 영역 (차트 2개 및 통계 결과)
         scroll_area = QScrollArea(self)
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QFrame.Shape.NoFrame)
@@ -127,7 +304,7 @@ class ViewDialog(QDialog):
         scroll_area.setWidget(container)
         root_layout.addWidget(scroll_area, 1)
 
-        # 2. 하단 액션 버튼
+        # 3. 하단 액션 버튼
         bottom_layout = QHBoxLayout()
         self.btn_refresh = QPushButton("차트 새로고침", self)
         self.btn_refresh.setStyleSheet(
@@ -175,99 +352,258 @@ class ViewDialog(QDialog):
         self.ax_duration.grid(True, which="both", linestyle="--", alpha=0.5)
 
     def _load_saved_settings(self):
-        """저장된 설정 불러오기"""
-        pass
+        """저장된 설정 불러오기 및 UI 동기화"""
+        saved_dir = settings.get_data_dir()
+        if saved_dir:
+            self.lineEdit_data_dir.setText(saved_dir)
+        self._populate_years_from_data_dir()
 
-    def _auto_load_if_ready(self):
-        """기존 설정 파일이 유효하면 자동으로 차트 렌더링"""
+    def refresh_from_settings(self):
+        """외부(예: Run 창 완료 후 또는 플러그인 메인)에서 설정 변경 시 UI 동기화"""
+        current_text = self.lineEdit_data_dir.text().strip()
+        saved_dir = settings.get_data_dir()
+        if saved_dir and saved_dir != current_text:
+            self.lineEdit_data_dir.setText(saved_dir)
+        self._populate_years_from_data_dir()
+
+    def showEvent(self, event):
+        """대화상자가 화면에 표시될 때 최신 설정 반영"""
+        super().showEvent(event)
+        self.refresh_from_settings()
+
+    @pyqtSlot()
+    def _browse_data_dir(self):
+        """Swat-K 전용 데이터 폴더 선택 대화상자"""
+        current_dir = self.lineEdit_data_dir.text().strip()
+        if not current_dir or not Path(current_dir).is_dir():
+            rch_path = settings.get_rch_path()
+            if rch_path and Path(rch_path).parent.is_dir():
+                current_dir = str(Path(rch_path).parent)
+            else:
+                current_dir = ""
+
+        selected_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Swat-K 전용 데이터 폴더 선택",
+            current_dir,
+        )
+        if selected_dir:
+            self.lineEdit_data_dir.setText(selected_dir)
+            settings.set_data_dir(selected_dir)
+            self._populate_years_from_data_dir()
+
+    @pyqtSlot()
+    def _on_data_dir_edited(self):
+        """사용자가 LineEdit에서 폴더 경로를 직접 입력/수정 완료했을 때"""
+        dir_text = self.lineEdit_data_dir.text().strip()
+        if dir_text and Path(dir_text).is_dir():
+            settings.set_data_dir(dir_text)
+            self._populate_years_from_data_dir()
+
+    @pyqtSlot()
+    def _populate_years_from_data_dir(self):
+        """지정된 데이터 폴더에서 FlowDuration CSV 파일을 찾아 연도 목록을 콤보박스에 채움"""
+        dir_path_str = self.lineEdit_data_dir.text().strip() or settings.get_data_dir()
+        if not dir_path_str or not Path(dir_path_str).is_dir():
+            self.combo_year.blockSignals(True)
+            self.combo_year.clear()
+            self.combo_year.addItem("데이터 폴더 미설정")
+            self.combo_year.setEnabled(False)
+            self.combo_year.blockSignals(False)
+            self.ax_daily.clear()
+            self._format_daily_axes()
+            self.canvas_daily.draw()
+            self.ax_duration.clear()
+            self._format_duration_axes()
+            self.canvas_duration.draw()
+            self.label_max_flow_val.setText("-")
+            self.label_peak_flow_val.setText("-")
+            return
+
+        data_dir = Path(dir_path_str)
         rch_path = settings.get_rch_path()
-        cio_path = settings.get_cio_path()
-        year_str = settings.get_start_year()
+        fd_file = find_flow_duration_file(data_dir, rch_path)
 
-        if (
-            rch_path
-            and Path(rch_path).is_file()
-            and cio_path
-            and Path(cio_path).is_file()
-            and year_str.isdigit()
-        ):
+        if not fd_file:
+            self.combo_year.blockSignals(True)
+            self.combo_year.clear()
+            self.combo_year.addItem("FlowDuration 파일 없음")
+            self.combo_year.setEnabled(False)
+            self.combo_year.blockSignals(False)
+            self.ax_daily.clear()
+            self._format_daily_axes()
+            self.canvas_daily.draw()
+            self.ax_duration.clear()
+            self._format_duration_axes()
+            self.canvas_duration.draw()
+            self.label_max_flow_val.setText("-")
+            self.label_peak_flow_val.setText("-")
+            return
+
+        years = extract_years_from_flow_duration(fd_file)
+        if not years:
+            self.combo_year.blockSignals(True)
+            self.combo_year.clear()
+            self.combo_year.addItem("연도 데이터 없음")
+            self.combo_year.setEnabled(False)
+            self.combo_year.blockSignals(False)
+            return
+
+        saved_year = settings.get_target_year()
+        self.combo_year.blockSignals(True)
+        self.combo_year.clear()
+        for y in years:
+            self.combo_year.addItem(y)
+        self.combo_year.setEnabled(True)
+
+        # 기존 선택/저장된 연도 복원, 없으면 첫 번째 연도 선택
+        if saved_year in years:
+            self.combo_year.setCurrentText(saved_year)
+        else:
+            self.combo_year.setCurrentIndex(0)
+            settings.set_target_year(years[0])
+        self.combo_year.blockSignals(False)
+
+        # 차트 렌더링
+        self._render_data(silent_error=True)
+
+    @pyqtSlot(str)
+    def _on_year_changed(self, year_text: str):
+        """콤보박스에서 대상 연도 선택 변경 시"""
+        if year_text and year_text.isdigit():
+            settings.set_target_year(year_text)
             self._render_data(silent_error=True)
 
     @pyqtSlot()
     def _render_data(self, silent_error=False):
-        """데이터를 불러와 차트 및 통계 결과를 갱신"""
-        rch_file = settings.get_rch_path()
-        cio_file = settings.get_cio_path()
-        year_str = settings.get_start_year()
-
-        if not rch_file or not Path(rch_file).is_file():
+        """선택된 연도 및 데이터 폴더를 기반으로 차트 및 통계 결과를 갱신"""
+        dir_path_str = self.lineEdit_data_dir.text().strip() or settings.get_data_dir()
+        if not dir_path_str or not Path(dir_path_str).is_dir():
             if not silent_error:
                 QMessageBox.warning(
-                    self, "설정 확인", "설정된 RCH 파일이 존재하지 않습니다."
+                    self,
+                    "폴더 확인",
+                    "유효한 Swat-K 전용 데이터 폴더가 지정되지 않았습니다.",
                 )
             return
 
-        if not cio_file or not Path(cio_file).is_file():
+        data_dir = Path(dir_path_str)
+        year_str = self.combo_year.currentText().strip()
+        if not year_str.isdigit():
             if not silent_error:
                 QMessageBox.warning(
-                    self, "설정 확인", "설정된 CIO 파일이 존재하지 않습니다."
-                )
-            return
-
-        if not str(year_str).isdigit():
-            if not silent_error:
-                QMessageBox.warning(
-                    self, "설정 확인", "유효한 시작 연도가 설정되지 않았습니다."
+                    self, "연도 선택", "유효한 대상 연도를 선택해주세요."
                 )
             return
 
         year_int = int(year_str)
+        rch_path = settings.get_rch_path()
 
         try:
-            # 1. RCH 데이터 로드 및 필터링
-            df_rch = pd.read_csv(rch_file, header=None, names=["date", "flow"])
-            df_rch["date"] = pd.to_datetime(df_rch["date"])
-            df_rch_filtered = df_rch[df_rch["date"].dt.year == year_int]
-
-            if df_rch_filtered.empty:
-                if not silent_error:
-                    QMessageBox.warning(
-                        self,
-                        "데이터 없음",
-                        f"RCH 파일에 {year_int}년 데이터가 없습니다.",
+            # 1. 일단위 유량 데이터 로드
+            daily_file = find_daily_flow_file(data_dir, rch_path)
+            flows: list[float] = []
+            if daily_file and daily_file.is_file():
+                if daily_file.name.endswith("_all.csv"):
+                    df_all = pd.read_csv(daily_file, index_col=0)
+                    df_all.index = pd.to_datetime(df_all.index, errors="coerce")
+                    df_filtered = df_all[df_all.index.year == year_int]
+                    col = (
+                        "1"
+                        if "1" in df_filtered.columns
+                        else df_filtered.columns[0]
                     )
-                return
-
-            # 2. CIO 데이터 로드 및 검증
-            df_cio = pd.read_csv(cio_file, index_col=0)
-            df_cio.columns = [
-                int(c) if not str(c).startswith("Unnamed") else c
-                for c in df_cio.columns
-            ]
-            numeric_cols = [c for c in df_cio.columns if isinstance(c, int)]
-            df_cio = df_cio[numeric_cols]
-
-            if year_int not in df_cio.columns:
-                if not silent_error:
-                    QMessageBox.warning(
-                        self,
-                        "데이터 없음",
-                        f"CIO 파일에 {year_int}년 데이터가 없습니다.",
+                    flows = (
+                        pd.to_numeric(df_filtered[col], errors="coerce")
+                        .dropna()
+                        .astype(float)
+                        .tolist()
                     )
-                return
+                else:
+                    df_daily = pd.read_csv(
+                        daily_file, header=None, names=["date", "flow"]
+                    )
+                    df_daily["date"] = pd.to_datetime(
+                        df_daily["date"], errors="coerce"
+                    )
+                    df_filtered = df_daily[df_daily["date"].dt.year == year_int]
+                    flows = (
+                        pd.to_numeric(df_filtered["flow"], errors="coerce")
+                        .dropna()
+                        .astype(float)
+                        .tolist()
+                    )
 
-            # 3. 차트 갱신
-            self._draw_daily_flow(df_rch_filtered, year_int)
-            self._draw_flow_duration(df_cio, year_int)
+            if flows:
+                self._draw_daily_flow(flows, year_int)
+            else:
+                self.ax_daily.clear()
+                self._format_daily_axes(f"- {year_int}년 (데이터 없음)")
+                self.canvas_daily.draw()
 
-            # 4. 통계 결과 계산 및 표시
-            flows = df_rch_filtered["flow"].astype(float)
-            max_flow = flows.max()
-            # 첨두홍수량: 연중 최대 유량 값
+            # 2. 유황곡선 데이터 로드
+            fd_file = find_flow_duration_file(data_dir, rch_path)
+            duration_flows: list[float] = []
+            if fd_file and fd_file.is_file():
+                df_fd = pd.read_csv(fd_file, index_col=0)
+                col_name = None
+                for c in df_fd.columns:
+                    if str(c).strip() == year_str:
+                        col_name = c
+                        break
+                if col_name is not None:
+                    duration_flows = (
+                        pd.to_numeric(df_fd[col_name], errors="coerce")
+                        .dropna()
+                        .tolist()
+                    )
+
+            if duration_flows:
+                self._draw_flow_duration(duration_flows, year_int)
+            else:
+                self.ax_duration.clear()
+                self._format_duration_axes(f"- {year_int}년 (데이터 없음)")
+                self.canvas_duration.draw()
+
+            # 3. 통계 결과 계산 및 표시
+            max_flow = max(flows) if flows else 0.0
             peak_flow = max_flow
 
-            self.label_max_flow_val.setText(f"{max_flow:,.2f} m³/s")
-            self.label_peak_flow_val.setText(f"{peak_flow:,.2f} m³/s")
+            # Max_step3.csv (첨두홍수량 계산 결과 파일) 탐색
+            step3_file = None
+            if rch_path:
+                c1 = data_dir / f"{Path(rch_path).name}_Max_step3.csv"
+                c2 = data_dir / f"{Path(rch_path).stem}_Max_step3.csv"
+                if c1.is_file():
+                    step3_file = c1
+                elif c2.is_file():
+                    step3_file = c2
+            if not step3_file:
+                m = sorted(data_dir.glob("*_Max_step3.csv"))
+                if m:
+                    step3_file = m[0]
+
+            if step3_file and step3_file.is_file():
+                try:
+                    df_step3 = pd.read_csv(step3_file, index_col=0)
+                    if year_int in df_step3.index:
+                        col = (
+                            "1"
+                            if "1" in df_step3.columns
+                            else df_step3.columns[0]
+                        )
+                        peak_val = float(df_step3.loc[year_int, col])
+                        if peak_val > 0:
+                            peak_flow = peak_val
+                except Exception:
+                    pass
+
+            if flows or duration_flows:
+                self.label_max_flow_val.setText(f"{max_flow:,.2f} m³/s")
+                self.label_peak_flow_val.setText(f"{peak_flow:,.2f} m³/s")
+            else:
+                self.label_max_flow_val.setText("-")
+                self.label_peak_flow_val.setText("-")
 
         except Exception as e:
             if not silent_error:
@@ -277,25 +613,27 @@ class ViewDialog(QDialog):
                     f"데이터를 시각화하는 중 오류가 발생했습니다:\n{str(e)}",
                 )
 
-    def _draw_daily_flow(self, df: pd.DataFrame, year: int):
+    def _draw_daily_flow(self, flows: list[float], year: int):
         self.ax_daily.clear()
         self._format_daily_axes(f"- {year}년")
 
-        flows = df["flow"].astype(float).tolist()
         if flows:
             self.ax_daily.plot(
-                range(len(flows)), flows, color="#2563EB", linewidth=1.2, label="유량"
+                range(len(flows)),
+                flows,
+                color="#2563EB",
+                linewidth=1.2,
+                label="유량",
             )
-            self.ax_daily.set_xlim(0, max(0, len(flows) - 1))
+            self.ax_daily.set_xlim(0, max(1, len(flows) - 1))
             self.ax_daily.legend(loc="upper right")
 
         self.canvas_daily.draw()
 
-    def _draw_flow_duration(self, df: pd.DataFrame, year: int):
+    def _draw_flow_duration(self, flow_data: list[float], year: int):
         self.ax_duration.clear()
         self._format_duration_axes(f"- {year}년")
 
-        flow_data = df[year].dropna().astype(float).tolist()
         filtered = [v for v in flow_data if v > 0]
         if filtered:
             days = range(1, len(filtered) + 1)
@@ -309,11 +647,16 @@ class ViewDialog(QDialog):
 
     @pyqtSlot()
     def _show_on_qgis_map(self):
-        """현재 조회된 연도/유량 데이터를 기반으로 하천망을 QGIS 지도에 시각화"""
+        """현재 선택된 연도/유량 데이터를 기반으로 하천망을 QGIS 지도에 시각화"""
         stream_shp = settings.get_stream_shp_path()
         subbasin_shp = settings.get_subbasin_shp_path()
         rch_path = settings.get_rch_path()
-        year_str = settings.get_start_year()
+        data_dir_str = (
+            self.lineEdit_data_dir.text().strip() or settings.get_data_dir()
+        )
+        year_str = (
+            self.combo_year.currentText().strip() or settings.get_target_year()
+        )
 
         if not stream_shp or not Path(stream_shp).is_file():
             QMessageBox.warning(
@@ -327,8 +670,24 @@ class ViewDialog(QDialog):
         year_int = int(year_str) if str(year_str).isdigit() else None
         year_label = f" ({year_int}년)" if year_int else ""
 
-        # 유량 데이터 추출
-        flow_data = load_reach_flows(rch_path, year=year_int, aggregate_mode="max")
+        # rch_path 검증 및 data_dir 기준 파일 우선 탐색
+        target_rch = rch_path
+        if data_dir_str and Path(data_dir_str).is_dir():
+            data_dir = Path(data_dir_str)
+            if rch_path and (data_dir / Path(rch_path).name).is_file():
+                target_rch = str(data_dir / Path(rch_path).name)
+            else:
+                rch_files = list(data_dir.glob("*.rch"))
+                if rch_files:
+                    target_rch = str(rch_files[0])
+                else:
+                    all_files = list(data_dir.glob("*_all.csv"))
+                    if all_files:
+                        target_rch = str(all_files[0])
+
+        flow_data = load_reach_flows(
+            target_rch, year=year_int, aggregate_mode="max"
+        )
 
         success, msg = render_swat_layers_to_qgis(
             stream_shp_path=stream_shp,
@@ -346,18 +705,28 @@ class ViewDialog(QDialog):
     @pyqtSlot()
     def _save_current_charts(self):
         """현재 렌더링된 두 차트를 고해상도 이미지 파일로 저장"""
-        save_dir = QFileDialog.getExistingDirectory(self, "차트 저장 디렉토리 선택")
+        save_dir = QFileDialog.getExistingDirectory(
+            self, "차트 저장 디렉토리 선택"
+        )
         if not save_dir:
             return
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        year_str = settings.get_start_year() or "chart"
+        year_str = (
+            self.combo_year.currentText().strip()
+            or settings.get_target_year()
+            or "chart"
+        )
         p_daily = Path(save_dir) / f"daily_flow_{year_str}_{timestamp}.png"
-        p_duration = Path(save_dir) / f"flow_duration_{year_str}_{timestamp}.png"
+        p_duration = (
+            Path(save_dir) / f"flow_duration_{year_str}_{timestamp}.png"
+        )
 
         try:
             self.fig_daily.savefig(str(p_daily), dpi=300, bbox_inches="tight")
-            self.fig_duration.savefig(str(p_duration), dpi=300, bbox_inches="tight")
+            self.fig_duration.savefig(
+                str(p_duration), dpi=300, bbox_inches="tight"
+            )
             QMessageBox.information(
                 self,
                 "저장 완료",
@@ -367,5 +736,7 @@ class ViewDialog(QDialog):
             )
         except Exception as e:
             QMessageBox.critical(
-                self, "저장 오류", f"차트 저장 중 오류가 발생했습니다:\n{str(e)}"
+                self,
+                "저장 오류",
+                f"차트 저장 중 오류가 발생했습니다:\n{str(e)}",
             )

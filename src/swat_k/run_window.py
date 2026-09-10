@@ -274,7 +274,10 @@ class RunDialog(QDialog):
     def _save_current_settings(self):
         """현재 입력된 경로 및 설정값 저장"""
         settings.set_converter_exe_path(self.lineEdit_exe.text().strip())
-        settings.set_rch_path(self.lineEdit_rch.text().strip())
+        rch_text = self.lineEdit_rch.text().strip()
+        settings.set_rch_path(rch_text)
+        if rch_text:
+            settings.set_data_dir(str(Path(rch_text).parent))
         settings.set_cio_path(self.lineEdit_cio.text().strip())
         settings.set_custom_formula(self.lineEdit_formula.text().strip())
         settings.set_stream_shp_path(self.lineEdit_stream_shp.text().strip())
@@ -317,6 +320,7 @@ class RunDialog(QDialog):
         if file_path:
             self.lineEdit_rch.setText(file_path)
             settings.set_rch_path(file_path)
+            settings.set_data_dir(str(Path(file_path).parent))
 
     @pyqtSlot()
     def _browse_cio_file(self):
@@ -479,6 +483,9 @@ class RunDialog(QDialog):
         self.btn_run.setText("Converter 실행")
 
         if exit_code == 0:
+            rch_path = self.lineEdit_rch.text().strip()
+            if rch_path:
+                settings.set_data_dir(str(Path(rch_path).parent))
             self.label_status.setText("변환 작업이 성공적으로 완료되었습니다.")
             self.label_status.setStyleSheet("color: #16A34A; font-weight: bold;")
 

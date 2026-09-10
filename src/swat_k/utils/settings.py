@@ -1,4 +1,4 @@
-"""SWAT-K 설정 관리 모듈 (QSettings 기반)"""
+from pathlib import Path
 
 try:
     from qgis.PyQt.QtCore import QSettings
@@ -14,6 +14,8 @@ KEY_CONVERTER_EXE = "converter_exe_path"
 KEY_RCH_PATH = "rch_file_path"
 KEY_CIO_PATH = "cio_file_path"
 KEY_START_YEAR = "start_year"
+KEY_TARGET_YEAR = "target_year"
+KEY_DATA_DIR = "data_dir"
 KEY_CUSTOM_FORMULA = "custom_formula"
 KEY_STREAM_SHP_PATH = "stream_shp_path"
 KEY_SUBBASIN_SHP_PATH = "subbasin_shp_path"
@@ -53,6 +55,31 @@ def get_start_year() -> str:
 
 def set_start_year(year: str) -> None:
     _get_settings().setValue(KEY_START_YEAR, year)
+
+
+def get_target_year() -> str:
+    val = str(_get_settings().value(KEY_TARGET_YEAR, "")).strip()
+    if not val:
+        val = get_start_year()
+    return val
+
+
+def set_target_year(year: str) -> None:
+    _get_settings().setValue(KEY_TARGET_YEAR, year)
+    set_start_year(year)
+
+
+def get_data_dir() -> str:
+    val = str(_get_settings().value(KEY_DATA_DIR, "")).strip()
+    if not val:
+        rch = get_rch_path()
+        if rch:
+            val = str(Path(rch).parent)
+    return val
+
+
+def set_data_dir(path: str) -> None:
+    _get_settings().setValue(KEY_DATA_DIR, path)
 
 
 def get_custom_formula() -> str:

@@ -70,6 +70,8 @@ class SwatKPlugin:
         """[SWAT-K] View 대화상자 열기"""
         if not self.view_dialog:
             self.view_dialog = ViewDialog(self.iface.mainWindow(), iface=self.iface)
+        else:
+            self.view_dialog.refresh_from_settings()
         self.view_dialog.show()
         self.view_dialog.raise_()
         self.view_dialog.activateWindow()
