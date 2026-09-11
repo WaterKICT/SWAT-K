@@ -15,6 +15,7 @@ KEY_RCH_PATH = "rch_file_path"
 KEY_CIO_PATH = "cio_file_path"
 KEY_START_YEAR = "start_year"
 KEY_TARGET_YEAR = "target_year"
+KEY_TARGET_REACH = "target_reach"
 KEY_DATA_DIR = "data_dir"
 KEY_CUSTOM_FORMULA = "custom_formula"
 KEY_STREAM_SHP_PATH = "stream_shp_path"
@@ -67,6 +68,19 @@ def get_target_year() -> str:
 def set_target_year(year: str) -> None:
     _get_settings().setValue(KEY_TARGET_YEAR, year)
     set_start_year(year)
+
+
+def get_target_reach() -> int:
+    val = _get_settings().value(KEY_TARGET_REACH, 1)
+    try:
+        r = int(val)
+        return r if r > 0 else 1
+    except (ValueError, TypeError):
+        return 1
+
+
+def set_target_reach(reach_id: int) -> None:
+    _get_settings().setValue(KEY_TARGET_REACH, int(reach_id))
 
 
 def get_data_dir() -> str:
