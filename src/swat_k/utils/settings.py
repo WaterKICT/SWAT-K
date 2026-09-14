@@ -20,6 +20,8 @@ KEY_DATA_DIR = "data_dir"
 KEY_CUSTOM_FORMULA = "custom_formula"
 KEY_STREAM_SHP_PATH = "stream_shp_path"
 KEY_SUBBASIN_SHP_PATH = "subbasin_shp_path"
+KEY_SELECTED_LAYER_NAME = "selected_layer_name"
+KEY_SELECTED_REACH_FIELD = "selected_reach_field"
 
 
 def _get_settings() -> QSettings:
@@ -119,3 +121,19 @@ def get_subbasin_shp_path() -> str:
 
 def set_subbasin_shp_path(path: str) -> None:
     _get_settings().setValue(KEY_SUBBASIN_SHP_PATH, path)
+
+
+def get_selected_layer_name() -> str:
+    return str(_get_settings().value(KEY_SELECTED_LAYER_NAME, ""))
+
+
+def set_selected_layer_name(name: str) -> None:
+    _get_settings().setValue(KEY_SELECTED_LAYER_NAME, name)
+
+
+def get_selected_reach_field() -> str:
+    return str(_get_settings().value(KEY_SELECTED_REACH_FIELD, ""))
+
+
+def set_selected_reach_field(field_name: str) -> None:
+    _get_settings().setValue(KEY_SELECTED_REACH_FIELD, field_name)

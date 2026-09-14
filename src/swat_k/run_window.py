@@ -6,7 +6,6 @@ from pathlib import Path
 try:
     from qgis.PyQt.QtCore import Qt, QThread, pyqtSignal, pyqtSlot
     from qgis.PyQt.QtWidgets import (
-        QCheckBox,
         QDialog,
         QFileDialog,
         QFormLayout,
@@ -23,7 +22,6 @@ except ImportError:
     from PySide6.QtCore import Signal as pyqtSignal
     from PySide6.QtCore import Slot as pyqtSlot
     from PySide6.QtWidgets import (
-        QCheckBox,
         QDialog,
         QFileDialog,
         QFormLayout,
@@ -37,11 +35,6 @@ except ImportError:
     )
 
 from swat_k.core.formula import DEFAULT_FORMULA, validate_formula
-from swat_k.core.gis_visualizer import (
-    find_paired_subbasin_shp,
-    load_reach_flows,
-    render_swat_layers_to_qgis,
-)
 from swat_k.utils import settings
 
 
@@ -133,7 +126,7 @@ class RunDialog(QDialog):
         super().__init__(parent)
         self.iface = iface
         self.setWindowTitle("[SWAT-K] Run - Converter 실행")
-        self.resize(660, 440)
+        self.resize(660, 320)
         self.worker: ConverterWorker | None = None
         self._init_ui()
         self._load_saved_settings()
@@ -162,7 +155,7 @@ class RunDialog(QDialog):
 
         # RCH 파일 경로 선택
         self.lineEdit_rch = QLineEdit(self)
-        self.lineEdit_rch.setPlaceholderText("RCH 파일 경로를 선택하세요")
+        self.lineEdit_rch.setPlaceholderText("RCH 파일 경로를 선택하세요 (*.rch)")
         self.btn_browse_rch = QPushButton("찾아보기...", self)
         self.btn_browse_rch.clicked.connect(self._browse_rch_file)
 
@@ -173,7 +166,7 @@ class RunDialog(QDialog):
 
         # CIO 파일 경로 선택
         self.lineEdit_cio = QLineEdit(self)
-        self.lineEdit_cio.setPlaceholderText("CIO 파일 경로를 선택하세요")
+        self.lineEdit_cio.setPlaceholderText("CIO 파일 경로를 선택하세요 (*.cio)")
         self.btn_browse_cio = QPushButton("찾아보기...", self)
         self.btn_browse_cio.clicked.connect(self._browse_cio_file)
 
@@ -181,32 +174,6 @@ class RunDialog(QDialog):
         layout_cio.addWidget(self.lineEdit_cio)
         layout_cio.addWidget(self.btn_browse_cio)
         form_layout.addRow("CIO 파일 경로:", layout_cio)
-
-        # 하천망 Shapefile 경로 선택 (선/LineString, 필수)
-        self.lineEdit_stream_shp = QLineEdit(self)
-        self.lineEdit_stream_shp.setPlaceholderText(
-            "하천망 Shapefile (.shp) 경로 선택 (필수)"
-        )
-        self.btn_browse_stream_shp = QPushButton("찾아보기...", self)
-        self.btn_browse_stream_shp.clicked.connect(self._browse_stream_shp_file)
-
-        layout_stream_shp = QHBoxLayout()
-        layout_stream_shp.addWidget(self.lineEdit_stream_shp)
-        layout_stream_shp.addWidget(self.btn_browse_stream_shp)
-        form_layout.addRow("하천망 Shapefile (.shp):", layout_stream_shp)
-
-        # 소유역 Shapefile 경로 선택 (면/Polygon, 선택)
-        self.lineEdit_subbasin_shp = QLineEdit(self)
-        self.lineEdit_subbasin_shp.setPlaceholderText(
-            "소유역 Shapefile (.shp) 경로 선택 (선택)"
-        )
-        self.btn_browse_subbasin_shp = QPushButton("찾아보기...", self)
-        self.btn_browse_subbasin_shp.clicked.connect(self._browse_subbasin_shp_file)
-
-        layout_subbasin_shp = QHBoxLayout()
-        layout_subbasin_shp.addWidget(self.lineEdit_subbasin_shp)
-        layout_subbasin_shp.addWidget(self.btn_browse_subbasin_shp)
-        form_layout.addRow("소유역 Shapefile (.shp):", layout_subbasin_shp)
 
         # 사용자 정의 식
         self.lineEdit_formula = QLineEdit(self)
@@ -217,13 +184,6 @@ class RunDialog(QDialog):
             "사칙연산(+, -, *, /)과 괄호만 허용됩니다."
         )
         form_layout.addRow("사용자 정의 식:", self.lineEdit_formula)
-
-        # QGIS 레이어 자동 등록 체크박스
-        self.check_auto_add_layer = QCheckBox(
-            "변환 완료 시 QGIS 지도에 하천망 유량 레이어 자동 등록", self
-        )
-        self.check_auto_add_layer.setChecked(True)
-        form_layout.addRow("", self.check_auto_add_layer)
 
         main_layout.addWidget(group_box)
 
@@ -255,8 +215,6 @@ class RunDialog(QDialog):
         saved_rch = settings.get_rch_path()
         saved_cio = settings.get_cio_path()
         saved_formula = settings.get_custom_formula()
-        saved_stream_shp = settings.get_stream_shp_path()
-        saved_subbasin_shp = settings.get_subbasin_shp_path()
 
         if saved_exe and Path(saved_exe).is_file():
             self.lineEdit_exe.setText(saved_exe)
@@ -266,10 +224,6 @@ class RunDialog(QDialog):
             self.lineEdit_cio.setText(saved_cio)
         if saved_formula:
             self.lineEdit_formula.setText(saved_formula)
-        if saved_stream_shp and Path(saved_stream_shp).is_file():
-            self.lineEdit_stream_shp.setText(saved_stream_shp)
-        if saved_subbasin_shp and Path(saved_subbasin_shp).is_file():
-            self.lineEdit_subbasin_shp.setText(saved_subbasin_shp)
 
     def _save_current_settings(self):
         """현재 입력된 경로 및 설정값 저장"""
@@ -280,8 +234,6 @@ class RunDialog(QDialog):
             settings.set_data_dir(str(Path(rch_text).parent))
         settings.set_cio_path(self.lineEdit_cio.text().strip())
         settings.set_custom_formula(self.lineEdit_formula.text().strip())
-        settings.set_stream_shp_path(self.lineEdit_stream_shp.text().strip())
-        settings.set_subbasin_shp_path(self.lineEdit_subbasin_shp.text().strip())
 
     @pyqtSlot()
     def _browse_exe_file(self):
@@ -315,9 +267,16 @@ class RunDialog(QDialog):
             self,
             "RCH 파일 선택",
             current_dir,
-            "RCH 및 CSV 파일 (*.rch *.csv);;모든 파일 (*)",
+            "RCH 파일 (*.rch);;모든 파일 (*)",
         )
         if file_path:
+            if file_path.lower().endswith(".csv"):
+                QMessageBox.warning(
+                    self,
+                    "파일 선택 오류",
+                    "CSV 파일은 선택할 수 없습니다. RCH 파일(*.rch)을 선택해주세요.",
+                )
+                return
             self.lineEdit_rch.setText(file_path)
             settings.set_rch_path(file_path)
             settings.set_data_dir(str(Path(file_path).parent))
@@ -335,64 +294,18 @@ class RunDialog(QDialog):
             self,
             "CIO 파일 선택",
             current_dir,
-            "CIO 및 CSV 파일 (*.cio *.csv);;모든 파일 (*)",
+            "CIO 파일 (*.cio);;모든 파일 (*)",
         )
         if file_path:
+            if file_path.lower().endswith(".csv"):
+                QMessageBox.warning(
+                    self,
+                    "파일 선택 오류",
+                    "CSV 파일은 선택할 수 없습니다. CIO 파일(*.cio)을 선택해주세요.",
+                )
+                return
             self.lineEdit_cio.setText(file_path)
             settings.set_cio_path(file_path)
-
-    @pyqtSlot()
-    def _browse_stream_shp_file(self):
-        """하천망 Shapefile 선택 및 소유역 파일 자동 추천"""
-        current_dir = ""
-        if self.lineEdit_stream_shp.text():
-            p = Path(self.lineEdit_stream_shp.text())
-            if p.parent.exists():
-                current_dir = str(p.parent)
-        elif self.lineEdit_rch.text():
-            p = Path(self.lineEdit_rch.text())
-            if p.parent.exists():
-                current_dir = str(p.parent)
-
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "하천망 Shapefile (.shp) 선택",
-            current_dir,
-            "Shapefile (*.shp);;모든 파일 (*)",
-        )
-        if file_path:
-            self.lineEdit_stream_shp.setText(file_path)
-            settings.set_stream_shp_path(file_path)
-
-            # 소유역 파일이 아직 비어있다면 동일 디렉토리에서 자동 추천
-            if not self.lineEdit_subbasin_shp.text().strip():
-                paired_sub = find_paired_subbasin_shp(file_path)
-                if paired_sub:
-                    self.lineEdit_subbasin_shp.setText(paired_sub)
-                    settings.set_subbasin_shp_path(paired_sub)
-
-    @pyqtSlot()
-    def _browse_subbasin_shp_file(self):
-        """소유역 Shapefile 선택"""
-        current_dir = ""
-        if self.lineEdit_subbasin_shp.text():
-            p = Path(self.lineEdit_subbasin_shp.text())
-            if p.parent.exists():
-                current_dir = str(p.parent)
-        elif self.lineEdit_stream_shp.text():
-            p = Path(self.lineEdit_stream_shp.text())
-            if p.parent.exists():
-                current_dir = str(p.parent)
-
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "소유역 Shapefile (.shp) 선택",
-            current_dir,
-            "Shapefile (*.shp);;모든 파일 (*)",
-        )
-        if file_path:
-            self.lineEdit_subbasin_shp.setText(file_path)
-            settings.set_subbasin_shp_path(file_path)
 
     @pyqtSlot()
     def _on_run_clicked(self):
@@ -426,6 +339,14 @@ class RunDialog(QDialog):
             )
             return
 
+        if rch_path.lower().endswith(".csv"):
+            QMessageBox.warning(
+                self,
+                "파일 형식 오류",
+                "CSV 파일은 RCH 입력으로 사용할 수 없습니다.\n*.rch 파일을 선택해주세요.",
+            )
+            return
+
         if not cio_path:
             QMessageBox.warning(self, "입력 오류", "CIO 파일을 지정해주세요.")
             return
@@ -436,17 +357,11 @@ class RunDialog(QDialog):
             )
             return
 
-        stream_shp = self.lineEdit_stream_shp.text().strip()
-        if stream_shp and not Path(stream_shp).is_file():
+        if cio_path.lower().endswith(".csv"):
             QMessageBox.warning(
-                self, "파일 오류", "지정된 하천망 Shapefile이 존재하지 않습니다."
-            )
-            return
-
-        subbasin_shp = self.lineEdit_subbasin_shp.text().strip()
-        if subbasin_shp and not Path(subbasin_shp).is_file():
-            QMessageBox.warning(
-                self, "파일 오류", "지정된 소유역 Shapefile이 존재하지 않습니다."
+                self,
+                "파일 형식 오류",
+                "CSV 파일은 CIO 입력으로 사용할 수 없습니다.\n*.cio 파일을 선택해주세요.",
             )
             return
 
@@ -457,6 +372,7 @@ class RunDialog(QDialog):
 
         # 설정값 영속화
         self._save_current_settings()
+        settings.set_data_dir(str(Path(rch_path).parent))
 
         # Converter CLI 실행 인자: <rch_path> <cio_path> "<formula>"
         arguments = [rch_path, cio_path, formula]
@@ -489,30 +405,10 @@ class RunDialog(QDialog):
             self.label_status.setText("변환 작업이 성공적으로 완료되었습니다.")
             self.label_status.setStyleSheet("color: #16A34A; font-weight: bold;")
 
-            # QGIS 지도 자동 등록 수행
-            map_msg = ""
-            if self.check_auto_add_layer.isChecked():
-                stream_shp = self.lineEdit_stream_shp.text().strip()
-                subbasin_shp = self.lineEdit_subbasin_shp.text().strip()
-                rch_path = self.lineEdit_rch.text().strip()
-
-                if stream_shp and Path(stream_shp).is_file():
-                    flow_data = load_reach_flows(rch_path, aggregate_mode="max")
-                    success, render_msg = render_swat_layers_to_qgis(
-                        stream_shp,
-                        subbasin_shp,
-                        flow_data=flow_data,
-                        iface=self.iface,
-                    )
-                    if success:
-                        map_msg = f"\n\n[QGIS 지도]\n{render_msg}"
-                    else:
-                        map_msg = f"\n\n[QGIS 지도 등록 실패]\n{render_msg}"
-
             QMessageBox.information(
                 self,
                 "변환 완료",
-                f"SWAT-K Converter 변환 작업이 성공적으로 완료되었습니다.{map_msg}",
+                "SWAT-K Converter 변환 작업이 성공적으로 완료되었습니다.",
             )
         else:
             self.label_status.setText(

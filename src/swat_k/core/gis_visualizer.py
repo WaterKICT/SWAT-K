@@ -454,18 +454,124 @@ def find_streamflow_layer(project=None):
     return None
 
 
-def highlight_subbasin_feature(reach_id: int, project=None, iface=None) -> bool:
-    """지정된 reach_id에 해당하는 소유역(및 하천망) 피처를 QGIS 지도에서 선택/하이라이트합니다."""
-    sub_layer = find_subbasin_layer(project)
+def get_qgis_vector_layers(project=None) -> list:
+    """현재 QGIS 프로젝트에 로드된 유효한 벡터 레이어 목록을 반환합니다."""
+    try:
+        from qgis.core import QgsProject
+    except ImportError:
+        return []
+    proj = project or QgsProject.instance()
+    if not proj:
+        return []
+    vector_layers = []
+    for layer in proj.mapLayers().values():
+        if hasattr(layer, "type") and layer.type() == 0:  # 0: QgsMapLayerType.VectorLayer
+            if not hasattr(layer, "isValid") or layer.isValid():
+                vector_layers.append(layer)
+    return vector_layers
+
+
+def get_layer_by_name_or_id(name_or_id: str, project=None):
+    """이름 또는 레이어 ID로 QGIS 프로젝트 내 레이어를 탐색합니다."""
+    if not name_or_id:
+        return None
+    try:
+        from qgis.core import QgsProject
+    except ImportError:
+        return None
+    proj = project or QgsProject.instance()
+    if not proj:
+        return None
+
+    # 1. 레이어 ID로 검색
+    layer = proj.mapLayer(name_or_id)
+    if layer and (not hasattr(layer, "isValid") or layer.isValid()):
+        return layer
+
+    # 2. 레이어 이름으로 검색
+    layers_by_name = proj.mapLayersByName(name_or_id)
+    if layers_by_name:
+        return layers_by_name[0]
+
+    # 3. 전체 목록 순회 비교
+    for lyr in proj.mapLayers().values():
+        if lyr.name() == name_or_id or lyr.id() == name_or_id:
+            return lyr
+
+    return None
+
+
+def get_layer_fields(layer) -> list[str]:
+    """지정된 벡터 레이어의 속성 필드명 목록을 반환합니다."""
+    if not layer:
+        return []
+    try:
+        if hasattr(layer, "fields"):
+            return [f.name() for f in layer.fields()]
+    except Exception:
+        pass
+    return []
+
+
+def get_field_unique_values(layer, field_name: str) -> list[int]:
+    """레이어의 특정 필드에서 고유 정수값(Reach ID 목록)을 추출합니다."""
+    if not layer or not field_name:
+        return []
+    try:
+        vals = set()
+        for feat in layer.getFeatures():
+            try:
+                val = int(feat[field_name])
+                vals.add(val)
+            except (ValueError, TypeError):
+                pass
+        return sorted(vals)
+    except Exception:
+        return []
+
+
+def highlight_subbasin_feature(
+    reach_id: int,
+    project=None,
+    iface=None,
+    target_layer=None,
+    reach_field: str | None = None,
+) -> bool:
+    """지정된 reach_id에 해당하는 피처를 QGIS 지도에서 선택/하이라이트합니다."""
     found = False
-    if sub_layer and hasattr(sub_layer, "isValid") and sub_layer.isValid():
+
+    # 1. 사용자가 직접 지정한 레이어 우선 처리
+    active_layer = target_layer
+    if isinstance(active_layer, str):
+        active_layer = get_layer_by_name_or_id(active_layer, project)
+
+    if active_layer and hasattr(active_layer, "isValid") and active_layer.isValid():
+        field_names = [f.name() for f in active_layer.fields()]
+        fld = reach_field or detect_reach_id_field(field_names)
+        if fld and fld in field_names:
+            target_ids = []
+            for feat in active_layer.getFeatures():
+                try:
+                    if int(feat[fld]) == reach_id:
+                        target_ids.append(feat.id())
+                except (ValueError, TypeError):
+                    pass
+            if target_ids:
+                active_layer.selectByIds(target_ids)
+                found = True
+            else:
+                active_layer.removeSelection()
+
+    # 2. SWAT-K 등록 소유역 레이어 처리
+    sub_layer = find_subbasin_layer(project)
+    if sub_layer and hasattr(sub_layer, "isValid") and sub_layer.isValid() and sub_layer != active_layer:
         field_names = [f.name() for f in sub_layer.fields()]
-        reach_field = detect_reach_id_field(field_names)
-        if reach_field:
+        r_field = reach_field or detect_reach_id_field(field_names)
+        if r_field and r_field in field_names:
             target_ids = []
             for feat in sub_layer.getFeatures():
                 try:
-                    if int(feat[reach_field]) == reach_id:
+                    if int(feat[r_field]) == reach_id:
                         target_ids.append(feat.id())
                 except (ValueError, TypeError):
                     pass
@@ -475,15 +581,16 @@ def highlight_subbasin_feature(reach_id: int, project=None, iface=None) -> bool:
             else:
                 sub_layer.removeSelection()
 
+    # 3. 하천망 레이어 처리
     stream_layer = find_streamflow_layer(project)
-    if stream_layer and hasattr(stream_layer, "isValid") and stream_layer.isValid():
+    if stream_layer and hasattr(stream_layer, "isValid") and stream_layer.isValid() and stream_layer != active_layer:
         field_names = [f.name() for f in stream_layer.fields()]
-        reach_field = "swat_reach" if "swat_reach" in field_names else detect_reach_id_field(field_names)
-        if reach_field:
+        r_field = "swat_reach" if "swat_reach" in field_names else detect_reach_id_field(field_names)
+        if r_field and r_field in field_names:
             target_ids = []
             for feat in stream_layer.getFeatures():
                 try:
-                    if int(feat[reach_field]) == reach_id:
+                    if int(feat[r_field]) == reach_id:
                         target_ids.append(feat.id())
                 except (ValueError, TypeError):
                     pass
@@ -508,16 +615,67 @@ try:
     from qgis.PyQt.QtCore import pyqtSignal
 
     class SubbasinSelectMapTool(QgsMapToolEmitPoint):
-        """QGIS 지도 캔버스에서 마우스 클릭 시 소유역 폴리곤 피처를 감지하여 Reach ID를 알리는 맵 툴"""
+        """QGIS 지도 캔버스에서 마우스 클릭 시 피처를 감지하여 Reach ID를 알리는 맵 툴"""
 
         reach_selected = pyqtSignal(int)
 
-        def __init__(self, canvas, iface=None):
+        def __init__(self, canvas, iface=None, target_layer=None, reach_field: str | None = None):
             super().__init__(canvas)
             self.iface = iface
+            self.target_layer = target_layer
+            self.reach_field = reach_field
+
+        def set_target_layer(self, layer):
+            self.target_layer = layer
+
+        def set_reach_field(self, field_name: str | None):
+            self.reach_field = field_name
 
         def canvasReleaseEvent(self, event):
             point = self.toMapCoordinates(event.pos())
+            mupp = self.canvas().mapUnitsPerPixel() if hasattr(self.canvas(), "mapUnitsPerPixel") else 1.0
+
+            # 1. 사용자가 선택한 target_layer가 있는 경우 우선 탐색
+            layer = self.target_layer
+            if isinstance(layer, str):
+                layer = get_layer_by_name_or_id(layer)
+
+            if layer and hasattr(layer, "isValid") and layer.isValid():
+                field_names = [f.name() for f in layer.fields()]
+                reach_field = self.reach_field if (self.reach_field and self.reach_field in field_names) else detect_reach_id_field(field_names)
+
+                if reach_field:
+                    matched_feat = None
+                    # 포인트 포함 여부 확인
+                    for feat in layer.getFeatures():
+                        geom = feat.geometry()
+                        if geom and geom.contains(point):
+                            matched_feat = feat
+                            break
+
+                    # 버퍼 반경 내 검색
+                    if not matched_feat:
+                        search_radius = mupp * 6
+                        rect = QgsRectangle(
+                            point.x() - search_radius,
+                            point.y() - search_radius,
+                            point.x() + search_radius,
+                            point.y() + search_radius,
+                        )
+                        for feat in layer.getFeatures(QgsFeatureRequest().setFilterRect(rect)):
+                            matched_feat = feat
+                            break
+
+                    if matched_feat:
+                        try:
+                            reach_id = int(matched_feat[reach_field])
+                            layer.selectByIds([matched_feat.id()])
+                            self.reach_selected.emit(reach_id)
+                            return
+                        except (ValueError, TypeError):
+                            pass
+
+            # 2. SWAT-K 등록 소유역 레이어 검색
             sub_layer = find_subbasin_layer()
             if sub_layer and sub_layer.isValid():
                 field_names = [f.name() for f in sub_layer.fields()]
@@ -531,7 +689,6 @@ try:
                             break
 
                     if not matched_feat:
-                        mupp = self.canvas().mapUnitsPerPixel()
                         search_radius = mupp * 5
                         rect = QgsRectangle(
                             point.x() - search_radius,
@@ -554,10 +711,9 @@ try:
                         except (ValueError, TypeError):
                             pass
 
-            # 소유역 레이어에서 못 찾은 경우 하천망 선 레이어 검색
+            # 3. 하천망 선 레이어 검색
             stream_layer = find_streamflow_layer()
             if stream_layer and stream_layer.isValid():
-                mupp = self.canvas().mapUnitsPerPixel()
                 search_radius = mupp * 8
                 rect = QgsRectangle(
                     point.x() - search_radius,
@@ -585,4 +741,9 @@ try:
 except ImportError:
     class SubbasinSelectMapTool:
         """QGIS 비의존성 환경용 더미 클래스"""
-        pass
+        def __init__(self, canvas=None, iface=None, target_layer=None, reach_field=None):
+            pass
+        def set_target_layer(self, layer):
+            pass
+        def set_reach_field(self, field_name: str | None):
+            pass

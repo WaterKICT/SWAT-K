@@ -139,6 +139,118 @@ class TestSettingsDataDirAndReach(unittest.TestCase):
         self.assertEqual(settings.get_target_reach(), 1)
 
 
+    def test_layer_and_field_settings(self):
+        settings.set_selected_layer_name("subs1")
+        self.assertEqual(settings.get_selected_layer_name(), "subs1")
+
+        settings.set_selected_reach_field("Subbasin")
+        self.assertEqual(settings.get_selected_reach_field(), "Subbasin")
+
+
+class MockField:
+    def __init__(self, name: str):
+        self._name = name
+
+    def name(self) -> str:
+        return self._name
+
+
+class MockFeature:
+    def __init__(self, feat_id: int, attrs: dict):
+        self._id = feat_id
+        self._attrs = attrs
+
+    def id(self) -> int:
+        return self._id
+
+    def __getitem__(self, key: str):
+        return self._attrs[key]
+
+
+class MockVectorLayer:
+    def __init__(self, name: str, field_names: list[str], features: list[MockFeature] | None = None):
+        self._name = name
+        self._fields = [MockField(f) for f in field_names]
+        self._features = features or []
+        self.selected_ids = []
+
+    def name(self) -> str:
+        return self._name
+
+    def id(self) -> str:
+        return f"{self._name}_id"
+
+    def isValid(self) -> bool:
+        return True
+
+    def type(self) -> int:
+        return 0
+
+    def fields(self) -> list[MockField]:
+        return self._fields
+
+    def getFeatures(self, req=None):
+        return iter(self._features)
+
+    def selectByIds(self, ids: list[int]):
+        self.selected_ids = list(ids)
+
+    def removeSelection(self):
+        self.selected_ids = []
+
+
+class TestViewDialogLayerAndField(unittest.TestCase):
+    """QGIS 벡터 레이어 및 속성 필드 콤보박스 연동 테스트"""
+
+    def test_headless_layer_combo_fallback(self):
+        # QGIS 프로젝트가 없는 환경에서는 레이어 콤보가 안내 문구로 비활성화됨
+        dialog = ViewDialog()
+        self.assertEqual(dialog.combo_layer.count(), 1)
+        self.assertEqual(dialog.combo_layer.itemText(0), "(로드된 QGIS 레이어 없음)")
+        self.assertFalse(dialog.combo_layer.isEnabled())
+        self.assertEqual(dialog.combo_field.count(), 0)
+        self.assertFalse(dialog.combo_field.isEnabled())
+        dialog.close()
+
+    def test_mock_layer_and_field_selection(self):
+        feat1 = MockFeature(101, {"OBJECTID": 1, "Subbasin": 1, "Area": 120.5})
+        feat9 = MockFeature(109, {"OBJECTID": 2, "Subbasin": 9, "Area": 250.8})
+        layer = MockVectorLayer("subs1", ["OBJECTID", "Subbasin", "Area"], [feat1, feat9])
+
+        dialog = ViewDialog()
+        dialog.combo_layer.setEnabled(True)
+        dialog.combo_layer.addItem(layer.name(), userData=layer)
+        dialog.combo_layer.setCurrentText(layer.name())
+
+        # 1. 레이어 변경 슬롯 호출
+        dialog._on_layer_changed(layer.name())
+
+        # 2. 필드 콤보에 ["OBJECTID", "Subbasin", "Area"]가 채워졌는지 검증
+        field_items = [dialog.combo_field.itemText(i) for i in range(dialog.combo_field.count())]
+        self.assertIn("OBJECTID", field_items)
+        self.assertIn("Subbasin", field_items)
+        self.assertIn("Area", field_items)
+
+        # 3. Subbasin 필드가 자동 추천/선택되었는지 검증
+        self.assertEqual(dialog.combo_field.currentText(), "Subbasin")
+        self.assertEqual(settings.get_selected_reach_field(), "Subbasin")
+        self.assertEqual(settings.get_selected_layer_name(), "subs1")
+
+        # 4. 하이라이트 함수 검증
+        from swat_k.core.gis_visualizer import highlight_subbasin_feature
+
+        res = highlight_subbasin_feature(9, target_layer=layer, reach_field="Subbasin")
+        self.assertTrue(res)
+        self.assertEqual(layer.selected_ids, [109])
+
+        # 존재하지 않는 소유역 하이라이트 시도 -> 빈 선택
+        res_none = highlight_subbasin_feature(999, target_layer=layer, reach_field="Subbasin")
+        self.assertFalse(res_none)
+        self.assertEqual(layer.selected_ids, [])
+
+        dialog.close()
+
+
 class TestViewDialog(unittest.TestCase):
     """ViewDialog UI 및 콤보박스 / 배너 명시적 표출 연동 테스트"""
 

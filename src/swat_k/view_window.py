@@ -12,9 +12,11 @@ from matplotlib.figure import Figure
 
 from swat_k.core.gis_visualizer import (
     SubbasinSelectMapTool,
+    detect_reach_id_field,
+    get_layer_by_name_or_id,
+    get_layer_fields,
+    get_qgis_vector_layers,
     highlight_subbasin_feature,
-    load_reach_flows,
-    render_swat_layers_to_qgis,
 )
 from swat_k.utils import settings
 
@@ -265,6 +267,17 @@ class ViewDialog(QDialog):
         self._init_ui()
         self._load_saved_settings()
 
+        if self.iface:
+            try:
+                from qgis.core import QgsProject
+
+                proj = QgsProject.instance()
+                if proj:
+                    proj.layersAdded.connect(self._populate_qgis_layers)
+                    proj.layersRemoved.connect(self._populate_qgis_layers)
+            except Exception:
+                pass
+
     def _init_ui(self):
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(12, 12, 12, 12)
@@ -288,6 +301,50 @@ class ViewDialog(QDialog):
         layout_data_dir.addWidget(self.btn_browse_data_dir)
         layout_controls.addRow("Swat-K 전용 데이터 폴더:", layout_data_dir)
 
+        # 대상 연도 선택 (Combo)
+        self.combo_year = QComboBox(self)
+        self.combo_year.setMinimumWidth(140)
+        self.combo_year.currentTextChanged.connect(self._on_year_changed)
+
+        self.btn_reload_years = QPushButton("새로고침", self)
+        self.btn_reload_years.setToolTip(
+            "데이터 폴더의 파일들로부터 소유역 및 연도 목록을 다시 불러옵니다."
+        )
+        self.btn_reload_years.clicked.connect(self._populate_controls_from_data_dir)
+
+        layout_year = QHBoxLayout()
+        layout_year.addWidget(self.combo_year)
+        layout_year.addWidget(self.btn_reload_years)
+        layout_year.addStretch()
+        layout_controls.addRow("대상 연도 선택:", layout_year)
+
+        # QGIS 소유역 레이어 선택 (Combo + 새로고침 버튼)
+        self.combo_layer = QComboBox(self)
+        self.combo_layer.setMinimumWidth(200)
+        self.combo_layer.currentTextChanged.connect(self._on_layer_changed)
+
+        self.btn_refresh_layers = QPushButton("레이어 새로고침", self)
+        self.btn_refresh_layers.setToolTip(
+            "QGIS 프로젝트에 로드된 벡터 레이어 목록을 다시 검색합니다."
+        )
+        self.btn_refresh_layers.clicked.connect(self._populate_qgis_layers)
+
+        layout_layer = QHBoxLayout()
+        layout_layer.addWidget(self.combo_layer)
+        layout_layer.addWidget(self.btn_refresh_layers)
+        layout_layer.addStretch()
+        layout_controls.addRow("QGIS 소유역 레이어:", layout_layer)
+
+        # 소유역(Reach) 필드 선택 (Combo)
+        self.combo_field = QComboBox(self)
+        self.combo_field.setMinimumWidth(200)
+        self.combo_field.currentTextChanged.connect(self._on_field_changed)
+
+        layout_field = QHBoxLayout()
+        layout_field.addWidget(self.combo_field)
+        layout_field.addStretch()
+        layout_controls.addRow("소유역(Reach) 필드:", layout_field)
+
         # 대상 소유역 선택 (Combo + 지도에서 마우스로 선택 버튼)
         self.combo_reach = QComboBox(self)
         self.combo_reach.setMinimumWidth(140)
@@ -309,23 +366,6 @@ class ViewDialog(QDialog):
         layout_reach.addWidget(self.btn_select_on_map)
         layout_reach.addStretch()
         layout_controls.addRow("대상 소유역 선택:", layout_reach)
-
-        # 대상 연도 선택 (Combo)
-        self.combo_year = QComboBox(self)
-        self.combo_year.setMinimumWidth(140)
-        self.combo_year.currentTextChanged.connect(self._on_year_changed)
-
-        self.btn_reload_years = QPushButton("새로고침", self)
-        self.btn_reload_years.setToolTip(
-            "데이터 폴더의 파일들로부터 소유역 및 연도 목록을 다시 불러옵니다."
-        )
-        self.btn_reload_years.clicked.connect(self._populate_controls_from_data_dir)
-
-        layout_year = QHBoxLayout()
-        layout_year.addWidget(self.combo_year)
-        layout_year.addWidget(self.btn_reload_years)
-        layout_year.addStretch()
-        layout_controls.addRow("대상 연도 선택:", layout_year)
 
         root_layout.addWidget(group_controls)
 
@@ -415,21 +455,12 @@ class ViewDialog(QDialog):
         )
         self.btn_refresh.clicked.connect(self._render_data)
 
-        self.btn_show_map = QPushButton("QGIS 지도에 표시", self)
-        self.btn_show_map.setStyleSheet(
-            "QPushButton { font-weight: bold; background-color: #2563EB; "
-            "color: white; padding: 5px 16px; border-radius: 4px; }"
-            "QPushButton:hover { background-color: #1D4ED8; }"
-        )
-        self.btn_show_map.clicked.connect(self._show_on_qgis_map)
-
         self.btn_save_charts = QPushButton("차트 이미지 저장", self)
         self.btn_save_charts.clicked.connect(self._save_current_charts)
         self.btn_close = QPushButton("닫기", self)
         self.btn_close.clicked.connect(self.close)
 
         bottom_layout.addWidget(self.btn_refresh)
-        bottom_layout.addWidget(self.btn_show_map)
         bottom_layout.addWidget(self.btn_save_charts)
         bottom_layout.addStretch()
         bottom_layout.addWidget(self.btn_close)
@@ -456,6 +487,7 @@ class ViewDialog(QDialog):
         if saved_dir:
             self.lineEdit_data_dir.setText(saved_dir)
         self._populate_controls_from_data_dir()
+        self._populate_qgis_layers()
 
     def refresh_from_settings(self):
         """외부(예: Run 창 완료 후 또는 플러그인 메인)에서 설정 변경 시 UI 동기화"""
@@ -464,11 +496,23 @@ class ViewDialog(QDialog):
         if saved_dir and saved_dir != current_text:
             self.lineEdit_data_dir.setText(saved_dir)
         self._populate_controls_from_data_dir()
+        self._populate_qgis_layers()
 
     def showEvent(self, event):
         """대화상자가 화면에 표시될 때 최신 설정 반영"""
         super().showEvent(event)
         self.refresh_from_settings()
+
+    def closeEvent(self, event):
+        """창 닫힐 때 맵 툴 해제 및 정리"""
+        if self.iface and self.map_tool:
+            try:
+                canvas = self.iface.mapCanvas()
+                if canvas and hasattr(canvas, "mapTool") and canvas.mapTool() == self.map_tool:
+                    canvas.unsetMapTool(self.map_tool)
+            except Exception:
+                pass
+        super().closeEvent(event)
 
     def _get_current_reach_id(self) -> int:
         """현재 콤보박스에 선택된 소유역 번호 반환"""
@@ -508,6 +552,104 @@ class ViewDialog(QDialog):
             self._populate_controls_from_data_dir()
 
     @pyqtSlot()
+    def _populate_qgis_layers(self):
+        """QGIS 프로젝트에 로드된 유효한 벡터 레이어 목록을 콤보박스에 반영합니다."""
+        layers = get_qgis_vector_layers()
+        saved_layer = settings.get_selected_layer_name()
+
+        self.combo_layer.blockSignals(True)
+        self.combo_layer.clear()
+
+        if not layers:
+            self.combo_layer.addItem("(로드된 QGIS 레이어 없음)")
+            self.combo_layer.setEnabled(False)
+            self.combo_field.clear()
+            self.combo_field.setEnabled(False)
+            self.combo_layer.blockSignals(False)
+            return
+
+        self.combo_layer.setEnabled(True)
+        target_idx = -1
+        for idx, lyr in enumerate(layers):
+            lyr_name = lyr.name() if hasattr(lyr, "name") else str(lyr)
+            self.combo_layer.addItem(lyr_name, userData=lyr)
+            if lyr_name == saved_layer:
+                target_idx = idx
+
+        if target_idx >= 0:
+            self.combo_layer.setCurrentIndex(target_idx)
+        else:
+            # sub, basin, watershed 키워드가 포함된 레이어 우선 선택
+            sub_idx = -1
+            for i in range(self.combo_layer.count()):
+                t = self.combo_layer.itemText(i).lower()
+                if any(k in t for k in ["sub", "basin", "watershed"]):
+                    sub_idx = i
+                    break
+            if sub_idx >= 0:
+                self.combo_layer.setCurrentIndex(sub_idx)
+            else:
+                self.combo_layer.setCurrentIndex(0)
+
+        self.combo_layer.blockSignals(False)
+        self._on_layer_changed(self.combo_layer.currentText())
+
+    @pyqtSlot(str)
+    def _on_layer_changed(self, layer_name: str):
+        """선택된 레이어가 변경되었을 때 해당 레이어의 필드 목록을 콤보박스에 채움"""
+        if not layer_name or layer_name.startswith("("):
+            self.combo_field.clear()
+            self.combo_field.setEnabled(False)
+            return
+
+        settings.set_selected_layer_name(layer_name)
+
+        layer = self.combo_layer.currentData()
+        if not layer or not hasattr(layer, "isValid") or not layer.isValid():
+            layer = get_layer_by_name_or_id(layer_name)
+
+        fields = get_layer_fields(layer)
+        self.combo_field.blockSignals(True)
+        self.combo_field.clear()
+
+        if not fields:
+            self.combo_field.setEnabled(False)
+            self.combo_field.blockSignals(False)
+            return
+
+        self.combo_field.setEnabled(True)
+        for fld in fields:
+            self.combo_field.addItem(fld)
+
+        saved_field = settings.get_selected_reach_field()
+        idx_f = self.combo_field.findText(saved_field)
+        if idx_f >= 0:
+            self.combo_field.setCurrentIndex(idx_f)
+        else:
+            rec = detect_reach_id_field(fields)
+            if rec:
+                rec_idx = self.combo_field.findText(rec)
+                if rec_idx >= 0:
+                    self.combo_field.setCurrentIndex(rec_idx)
+                else:
+                    self.combo_field.setCurrentIndex(0)
+            else:
+                self.combo_field.setCurrentIndex(0)
+
+        self.combo_field.blockSignals(False)
+        self._on_field_changed(self.combo_field.currentText())
+
+    @pyqtSlot(str)
+    def _on_field_changed(self, field_name: str):
+        """선택된 필드가 변경되었을 때 설정 저장 및 맵 툴 대상 필드 갱신"""
+        if not field_name:
+            return
+        settings.set_selected_reach_field(field_name)
+
+        if self.map_tool and hasattr(self.map_tool, "set_reach_field"):
+            self.map_tool.set_reach_field(field_name)
+
+    @pyqtSlot()
     def _activate_map_select_tool(self):
         """QGIS 지도 캔버스에서 마우스 클릭으로 소유역을 선택하는 맵 툴 활성화"""
         if not self.iface:
@@ -518,15 +660,24 @@ class ViewDialog(QDialog):
 
         try:
             canvas = self.iface.mapCanvas()
-            self.map_tool = SubbasinSelectMapTool(canvas, iface=self.iface)
+            layer_name = self.combo_layer.currentText()
+            layer = self.combo_layer.currentData() or get_layer_by_name_or_id(layer_name)
+            reach_field = self.combo_field.currentText() or settings.get_selected_reach_field()
+
+            self.map_tool = SubbasinSelectMapTool(
+                canvas,
+                iface=self.iface,
+                target_layer=layer,
+                reach_field=reach_field,
+            )
             self.map_tool.reach_selected.connect(self.set_target_reach)
             canvas.setMapTool(self.map_tool)
 
             if hasattr(self.iface, "messageBar"):
-                self.iface.messageBar().pushInfo(
-                    "SWAT-K",
-                    "지도에서 분석할 소유역(폴리곤 또는 하천선)을 마우스로 클릭하세요.",
-                )
+                msg = "지도에서 분석할 소유역(폴리곤 또는 하천선)을 마우스로 클릭하세요."
+                if layer_name and not layer_name.startswith("("):
+                    msg += f" [대상 레이어: {layer_name}, 필드: {reach_field}]"
+                self.iface.messageBar().pushInfo("SWAT-K", msg)
         except Exception as e:
             QMessageBox.warning(self, "오류", f"지도 선택 툴 활성화 실패: {str(e)}")
 
@@ -544,7 +695,16 @@ class ViewDialog(QDialog):
             self.combo_reach.blockSignals(False)
 
         settings.set_target_reach(reach_id)
-        highlight_subbasin_feature(reach_id, iface=self.iface)
+        target_layer = self.combo_layer.currentData() or get_layer_by_name_or_id(
+            self.combo_layer.currentText()
+        )
+        reach_field = self.combo_field.currentText() or settings.get_selected_reach_field()
+        highlight_subbasin_feature(
+            reach_id,
+            iface=self.iface,
+            target_layer=target_layer,
+            reach_field=reach_field,
+        )
         self._render_data(silent_error=True)
 
     @pyqtSlot(str)
@@ -554,7 +714,16 @@ class ViewDialog(QDialog):
         if m:
             reach_id = int(m.group(1))
             settings.set_target_reach(reach_id)
-            highlight_subbasin_feature(reach_id, iface=self.iface)
+            target_layer = self.combo_layer.currentData() or get_layer_by_name_or_id(
+                self.combo_layer.currentText()
+            )
+            reach_field = self.combo_field.currentText() or settings.get_selected_reach_field()
+            highlight_subbasin_feature(
+                reach_id,
+                iface=self.iface,
+                target_layer=target_layer,
+                reach_field=reach_field,
+            )
             self._render_data(silent_error=True)
 
     @pyqtSlot(str)
@@ -829,66 +998,6 @@ class ViewDialog(QDialog):
             self.ax_duration.legend(loc="upper right")
 
         self.canvas_duration.draw()
-
-    @pyqtSlot()
-    def _show_on_qgis_map(self):
-        """현재 선택된 연도/유량 데이터를 기반으로 하천망을 QGIS 지도에 시각화"""
-        stream_shp = settings.get_stream_shp_path()
-        subbasin_shp = settings.get_subbasin_shp_path()
-        rch_path = settings.get_rch_path()
-        data_dir_str = (
-            self.lineEdit_data_dir.text().strip() or settings.get_data_dir()
-        )
-        reach_id = self._get_current_reach_id()
-        year_str = (
-            self.combo_year.currentText().strip() or settings.get_target_year()
-        )
-
-        if not stream_shp or not Path(stream_shp).is_file():
-            QMessageBox.warning(
-                self,
-                "하천망 Shapefile 미설정",
-                "등록된 하천망 Shapefile이 없습니다.\n\n"
-                "[SWAT-K] Run 대화상자에서 하천망 Shapefile(.shp)을 먼저 지정해주세요.",
-            )
-            return
-
-        year_int = int(year_str) if str(year_str).isdigit() else None
-        year_label = f" ({year_int}년)" if year_int else ""
-
-        # rch_path 검증 및 data_dir 기준 파일 우선 탐색
-        target_rch = rch_path
-        if data_dir_str and Path(data_dir_str).is_dir():
-            data_dir = Path(data_dir_str)
-            if rch_path and (data_dir / Path(rch_path).name).is_file():
-                target_rch = str(data_dir / Path(rch_path).name)
-            else:
-                rch_files = list(data_dir.glob("*.rch"))
-                if rch_files:
-                    target_rch = str(rch_files[0])
-                else:
-                    all_files = list(data_dir.glob("*_all.csv"))
-                    if all_files:
-                        target_rch = str(all_files[0])
-
-        flow_data = load_reach_flows(
-            target_rch, year=year_int, aggregate_mode="max"
-        )
-
-        success, msg = render_swat_layers_to_qgis(
-            stream_shp_path=stream_shp,
-            subbasin_shp_path=subbasin_shp,
-            flow_data=flow_data,
-            year_label=year_label,
-            iface=self.iface,
-        )
-
-        if success:
-            # 선택된 소유역 피처 하이라이트
-            highlight_subbasin_feature(reach_id, iface=self.iface)
-            QMessageBox.information(self, "QGIS 지도 표출 완료", msg)
-        else:
-            QMessageBox.warning(self, "QGIS 지도 표출 실패", msg)
 
     @pyqtSlot()
     def _save_current_charts(self):
