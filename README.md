@@ -1,4 +1,4 @@
-# SWAT-K (KICT SWAT PoC 2025)
+# SWAT-K (KICT SWAT-K , QGIS plugin)
 
 SWAT(Soil and Water Assessment Tool) 데이터 처리, 변환 및 시각화를 위한 QGIS 플러그인입니다.
 
@@ -6,7 +6,7 @@ SWAT(Soil and Water Assessment Tool) 데이터 처리, 변환 및 시각화를 �
 
 - **[SWAT-K] Run**
   - SWAT-K Converter 실행 파일(`.exe`) 및 RCH, CIO 파일 경로 지정
-  - 시작 연도 설정 및 `QSettings` 기반 사용자 설정 자동 저장/복원
+  - `QSettings` 기반 사용자 설정 자동 저장/복원
 - **[SWAT-K] View**
   - **일단위 유량 차트**: 일별 유량 시계열(m³/s) 시각화
   - **소유역별 연도별 유황곡선**: 일수(Day)에 따른 유량을 로그 스케일로 표시
