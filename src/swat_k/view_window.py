@@ -64,6 +64,32 @@ matplotlib.rcParams["font.family"] = "Malgun Gothic"
 matplotlib.rcParams["axes.unicode_minus"] = False
 
 
+def find_latest_out_dir(base_dir: Path | str) -> Path | None:
+    """rch 파일 디렉토리 등에서 가장 최근 생성된 out_timestamp 디렉토리를 탐색합니다."""
+    if not base_dir:
+        return None
+    p = Path(base_dir)
+    if not p.is_dir():
+        return None
+    out_dirs = [d for d in p.glob("out_*") if d.is_dir()]
+    if not out_dirs:
+        return None
+    return sorted(out_dirs, key=lambda d: (d.name, d.stat().st_mtime), reverse=True)[0]
+
+
+def resolve_effective_data_dir(data_dir: Path | str) -> Path:
+    """데이터 디렉토리가 주어졌을 때, 내부에 최신 out_timestamp 결과 폴더가 있으면 해당 폴더를 우선 반환합니다."""
+    if not data_dir:
+        return Path(".")
+    p = Path(data_dir)
+    if not p.is_dir():
+        return p
+    latest_out = find_latest_out_dir(p)
+    if latest_out and any(latest_out.glob("*.csv")):
+        return latest_out
+    return p
+
+
 def find_flow_duration_file(
     data_dir: Path, rch_path: str = "", reach_id: int = 1
 ) -> Path | None:
@@ -80,22 +106,26 @@ def find_flow_duration_file(
     if not data_dir or not data_dir.is_dir():
         return None
 
+    eff_dir = resolve_effective_data_dir(data_dir)
     rch_name = Path(rch_path).name if rch_path else ""
     rch_stem = Path(rch_path).stem if rch_path else ""
 
-    candidates = []
+    candidates = [
+        eff_dir / f"FlowDuration_{reach_id}.csv",
+        eff_dir / "FlowDuration.csv" if reach_id == 1 else None,
+    ]
     if rch_name:
         candidates.extend(
             [
-                data_dir / f"{rch_name}_FlowDuration_{reach_id}.csv",
-                data_dir / f"{rch_name}_FlowDuration.csv" if reach_id == 1 else None,
+                eff_dir / f"{rch_name}_FlowDuration_{reach_id}.csv",
+                eff_dir / f"{rch_name}_FlowDuration.csv" if reach_id == 1 else None,
             ]
         )
     if rch_stem:
         candidates.extend(
             [
-                data_dir / f"{rch_stem}_FlowDuration_{reach_id}.csv",
-                data_dir / f"{rch_stem}_FlowDuration.csv" if reach_id == 1 else None,
+                eff_dir / f"{rch_stem}_FlowDuration_{reach_id}.csv",
+                eff_dir / f"{rch_stem}_FlowDuration.csv" if reach_id == 1 else None,
             ]
         )
 
@@ -109,10 +139,10 @@ def find_flow_duration_file(
         f"*FlowDuration_{reach_id}.csv",
     ]
     if reach_id == 1:
-        patterns.extend(["*_FlowDuration.csv", "*_FlowDuration*.csv", "*FlowDuration*.csv"])
+        patterns.extend(["*_FlowDuration.csv", "*FlowDuration.csv", "*_FlowDuration*.csv", "*FlowDuration*.csv"])
 
     for pattern in patterns:
-        matched = sorted(data_dir.glob(pattern))
+        matched = sorted(eff_dir.glob(pattern))
         if matched:
             return matched[0]
 
@@ -160,10 +190,13 @@ def find_daily_flow_file(
     if not data_dir or not data_dir.is_dir():
         return None
 
+    eff_dir = resolve_effective_data_dir(data_dir)
     rch_name = Path(rch_path).name if rch_path else ""
     rch_stem = Path(rch_path).stem if rch_path else ""
 
-    candidates = []
+    candidates = [
+        eff_dir / f"{reach_id}.csv",
+    ]
     if (
         rch_path
         and Path(rch_path).is_file()
@@ -175,15 +208,15 @@ def find_daily_flow_file(
     if rch_name:
         candidates.extend(
             [
-                data_dir / f"{rch_name}_{reach_id}.csv",
-                data_dir / f"{rch_name}.csv" if reach_id == 1 else None,
+                eff_dir / f"{rch_name}_{reach_id}.csv",
+                eff_dir / f"{rch_name}.csv" if reach_id == 1 else None,
             ]
         )
     if rch_stem:
         candidates.extend(
             [
-                data_dir / f"{rch_stem}_{reach_id}.csv",
-                data_dir / f"{rch_stem}.csv" if reach_id == 1 else None,
+                eff_dir / f"{rch_stem}_{reach_id}.csv",
+                eff_dir / f"{rch_stem}.csv" if reach_id == 1 else None,
             ]
         )
 
@@ -192,7 +225,7 @@ def find_daily_flow_file(
             return c
 
     # 와일드카드 패턴 검색 (*_{reach_id}.csv 등, 단 FlowDuration이나 Max 제외)
-    matched = sorted(data_dir.glob(f"*_{reach_id}.csv"))
+    matched = sorted(eff_dir.glob(f"*_{reach_id}.csv"))
     valid = [
         f
         for f in matched
@@ -201,10 +234,15 @@ def find_daily_flow_file(
     if valid:
         return valid[0]
 
-    # _all.csv 확인 (전체 reach가 통합된 파일)
-    all_matched = sorted(data_dir.glob("*_all.csv"))
+    # all.csv 또는 _all.csv 확인 (전체 reach가 통합된 파일)
+    if (eff_dir / "all.csv").is_file():
+        return eff_dir / "all.csv"
+    all_matched = sorted(eff_dir.glob("*_all.csv"))
     if all_matched:
         return all_matched[0]
+    all_matched_alt = sorted(eff_dir.glob("*all.csv"))
+    if all_matched_alt:
+        return all_matched_alt[0]
 
     return None
 
@@ -222,10 +260,18 @@ def find_available_reaches(data_dir: Path, rch_path: str = "") -> list[int]:
     if not data_dir or not data_dir.is_dir():
         return [1]
 
+    eff_dir = resolve_effective_data_dir(data_dir)
     reaches = set()
 
-    # 1. _all.csv 헤더 확인
-    for f in data_dir.glob("*_all.csv"):
+    # 1. all.csv 및 *_all.csv 헤더 확인
+    all_files = []
+    if (eff_dir / "all.csv").is_file():
+        all_files.append(eff_dir / "all.csv")
+    for f in eff_dir.glob("*all.csv"):
+        if f not in all_files:
+            all_files.append(f)
+
+    for f in all_files:
         try:
             with open(f, "r", encoding="utf-8", errors="ignore") as fp:
                 line = fp.readline()
@@ -236,15 +282,18 @@ def find_available_reaches(data_dir: Path, rch_path: str = "") -> list[int]:
         except Exception:
             pass
 
-    # 2. _FlowDuration_*.csv 패턴 확인
-    for f in data_dir.glob("*_FlowDuration_*.csv"):
-        m = re.search(r"_FlowDuration_(\d+)\.csv$", f.name)
+    # 2. FlowDuration_*.csv 및 *_FlowDuration_*.csv 패턴 확인
+    for f in eff_dir.glob("*FlowDuration_*.csv"):
+        m = re.search(r"(?:^|_)FlowDuration_(\d+)\.csv$", f.name)
         if m:
             reaches.add(int(m.group(1)))
 
-    # 3. 개별 하천 시계열 파일 (*_{id}.csv) 확인
-    for f in data_dir.glob("*_*.csv"):
-        if any(k in f.name for k in ["FlowDuration", "Max_step", "all"]):
+    # 3. 개별 하천 시계열 파일 ({id}.csv 및 *_{id}.csv) 확인
+    for f in eff_dir.glob("*.csv"):
+        if any(k in f.name for k in ["FlowDuration", "Max_step", "all", "equation"]):
+            continue
+        if f.stem.isdigit():
+            reaches.add(int(f.stem))
             continue
         m = re.search(r"_(\d+)\.csv$", f.name)
         if m:
@@ -832,7 +881,7 @@ class ViewDialog(QDialog):
                 )
             return
 
-        data_dir = Path(dir_path_str)
+        data_dir = resolve_effective_data_dir(Path(dir_path_str))
         reach_id = self._get_current_reach_id()
         year_str = self.combo_year.currentText().strip()
         if not year_str.isdigit():
@@ -857,7 +906,7 @@ class ViewDialog(QDialog):
             reach_col_str = str(reach_id)
 
             if daily_file and daily_file.is_file():
-                if daily_file.name.endswith("_all.csv"):
+                if daily_file.name == "all.csv" or daily_file.name.endswith("_all.csv"):
                     df_all = pd.read_csv(daily_file, index_col=0)
                     df_all.index = pd.to_datetime(df_all.index, errors="coerce")
                     df_filtered = df_all[df_all.index.year == year_int]
@@ -925,7 +974,9 @@ class ViewDialog(QDialog):
 
             # Max_step3.csv (첨두홍수량 계산 결과 파일) 탐색
             step3_file = None
-            if rch_path:
+            if (data_dir / "Max_step3.csv").is_file():
+                step3_file = data_dir / "Max_step3.csv"
+            elif rch_path:
                 c1 = data_dir / f"{Path(rch_path).name}_Max_step3.csv"
                 c2 = data_dir / f"{Path(rch_path).stem}_Max_step3.csv"
                 if c1.is_file():
@@ -933,7 +984,7 @@ class ViewDialog(QDialog):
                 elif c2.is_file():
                     step3_file = c2
             if not step3_file:
-                m = sorted(data_dir.glob("*_Max_step3.csv"))
+                m = sorted(data_dir.glob("*Max_step3.csv"))
                 if m:
                     step3_file = m[0]
 

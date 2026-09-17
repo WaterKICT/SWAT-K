@@ -113,15 +113,32 @@ def load_reach_flows(
     p = Path(rch_file_path)
     parent = p.parent
 
-    # 1. {rch_path}_all.csv 파일 우선 탐색 (Converter가 생성하는 전 Reach 통합 CSV)
-    all_csv_path = parent / f"{p.name}_all.csv"
-    if not all_csv_path.is_file():
-        # rch_all.csv 이름 후보 탐색
-        alt = list(parent.glob("*_all.csv"))
+    # out_* 디렉토리가 있는 경우 최신 out 폴더 우선 확인
+    from swat_k.utils.settings import find_latest_out_dir
+
+    latest_out = find_latest_out_dir(parent)
+    search_dirs = [latest_out, parent] if latest_out else [parent]
+
+    # 1. all.csv 또는 {rch_path}_all.csv 파일 탐색
+    all_csv_path = None
+    for sdir in search_dirs:
+        candidates = [
+            sdir / "all.csv",
+            sdir / f"{p.name}_all.csv",
+            sdir / f"{p.stem}_all.csv",
+        ]
+        for c in candidates:
+            if c.is_file():
+                all_csv_path = c
+                break
+        if all_csv_path:
+            break
+        alt = list(sdir.glob("*all.csv"))
         if alt:
             all_csv_path = alt[0]
+            break
 
-    if all_csv_path.is_file():
+    if all_csv_path and all_csv_path.is_file():
         try:
             df = pd.read_csv(all_csv_path, index_col=0)
             # 컬럼명이 정수(하천 번호) 또는 정수 변환 가능한 문자열인지 확인
@@ -161,9 +178,26 @@ def load_reach_flows(
         except Exception:
             pass
 
-    # 2. {rch_path}_Max_step3.csv (첨두홍수량 계산 결과 파일) 탐색
-    max_step3_path = parent / f"{p.name}_Max_step3.csv"
-    if max_step3_path.is_file() and year is not None:
+    # 2. Max_step3.csv (첨두홍수량 계산 결과 파일) 탐색
+    max_step3_path = None
+    for sdir in search_dirs:
+        candidates = [
+            sdir / "Max_step3.csv",
+            sdir / f"{p.name}_Max_step3.csv",
+            sdir / f"{p.stem}_Max_step3.csv",
+        ]
+        for c in candidates:
+            if c.is_file():
+                max_step3_path = c
+                break
+        if max_step3_path:
+            break
+        alt = list(sdir.glob("*Max_step3.csv"))
+        if alt:
+            max_step3_path = alt[0]
+            break
+
+    if max_step3_path and max_step3_path.is_file() and year is not None:
         try:
             df_max = pd.read_csv(max_step3_path, index_col=0)
             if year in df_max.index:
@@ -180,30 +214,35 @@ def load_reach_flows(
         except Exception:
             pass
 
-    # 3. 개별 {rch_path}_{reach_id}.csv 파일 탐색
+    # 3. 개별 {reach_id}.csv 또는 {rch_path}_{reach_id}.csv 파일 탐색
     result = {}
-    for reach_csv in parent.glob(f"{p.name}_*.csv"):
-        stem = reach_csv.stem
-        # _all, _FlowDuration, _Max 제외
-        suffix = stem.replace(f"{p.name}_", "")
-        if suffix.isdigit():
-            rch_id = int(suffix)
-            try:
-                df_single = pd.read_csv(reach_csv, header=None, names=["date", "flow"])
-                df_single["date"] = pd.to_datetime(df_single["date"], errors="coerce")
-                if year is not None:
-                    df_single = df_single[df_single["date"].dt.year == year]
-                flows = pd.to_numeric(df_single["flow"], errors="coerce").dropna()
-                if not flows.empty:
-                    val = float(
-                        flows.max() if aggregate_mode == "max" else flows.mean()
-                    )
-                    result[rch_id] = round(val, 3)
-            except Exception:
-                pass
-
-    if result:
-        return result
+    for sdir in search_dirs:
+        for reach_csv in sdir.glob("*.csv"):
+            if any(k in reach_csv.name for k in ["FlowDuration", "Max_step", "all", "equation"]):
+                continue
+            rch_id = None
+            if reach_csv.stem.isdigit():
+                rch_id = int(reach_csv.stem)
+            elif reach_csv.stem.startswith(f"{p.name}_"):
+                suffix = reach_csv.stem.replace(f"{p.name}_", "")
+                if suffix.isdigit():
+                    rch_id = int(suffix)
+            if rch_id is not None:
+                try:
+                    df_single = pd.read_csv(reach_csv, header=None, names=["date", "flow"])
+                    df_single["date"] = pd.to_datetime(df_single["date"], errors="coerce")
+                    if year is not None:
+                        df_single = df_single[df_single["date"].dt.year == year]
+                    flows = pd.to_numeric(df_single["flow"], errors="coerce").dropna()
+                    if not flows.empty:
+                        val = float(
+                            flows.max() if aggregate_mode == "max" else flows.mean()
+                        )
+                        result[rch_id] = round(val, 3)
+                except Exception:
+                    pass
+        if result:
+            return result
 
     # 4. 원본 RCH 텍스트 파일 파싱 (고정폭 텍스트)
     if p.suffix.lower() == ".rch":

@@ -400,15 +400,25 @@ class RunDialog(QDialog):
 
         if exit_code == 0:
             rch_path = self.lineEdit_rch.text().strip()
-            if rch_path:
+            folder_info = ""
+            if rch_path and Path(rch_path).is_file():
+                parent_dir = Path(rch_path).parent
+                latest_out = settings.find_latest_out_dir(parent_dir)
+                if latest_out:
+                    settings.set_data_dir(str(latest_out))
+                    folder_info = f"\n(결과 폴더: {latest_out.name})"
+                else:
+                    settings.set_data_dir(str(parent_dir))
+            elif rch_path and Path(rch_path).parent.is_dir():
                 settings.set_data_dir(str(Path(rch_path).parent))
-            self.label_status.setText("변환 작업이 성공적으로 완료되었습니다.")
+
+            self.label_status.setText(f"변환 작업이 성공적으로 완료되었습니다.{folder_info}")
             self.label_status.setStyleSheet("color: #16A34A; font-weight: bold;")
 
             QMessageBox.information(
                 self,
                 "변환 완료",
-                "SWAT-K Converter 변환 작업이 성공적으로 완료되었습니다.",
+                f"SWAT-K Converter 변환 작업이 성공적으로 완료되었습니다.{folder_info}",
             )
         else:
             self.label_status.setText(

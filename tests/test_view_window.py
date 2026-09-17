@@ -14,6 +14,8 @@ from swat_k.view_window import (
     find_available_reaches,
     find_daily_flow_file,
     find_flow_duration_file,
+    find_latest_out_dir,
+    resolve_effective_data_dir,
 )
 
 app = QApplication.instance() or QApplication(sys.argv)
@@ -110,6 +112,98 @@ class TestViewWindowHelpers(unittest.TestCase):
             all_csv = tmppath / "model_all.csv"
             all_csv.write_text(",1,4,9\n2020-01-01,1,2,3\n", encoding="utf-8")
             self.assertEqual(find_available_reaches(tmppath), [1, 4, 9])
+
+
+class TestTimestampedOutFolderHelpers(unittest.TestCase):
+    """신규 Converter out_YYMMDD_HHMMSS 결과 폴더 및 파일명 규격 탐색 검증"""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.base = Path(self.tmpdir.name)
+
+        # 이전 실행 폴더와 최신 실행 폴더 생성
+        self.old_out = self.base / "out_260914_090000"
+        self.old_out.mkdir()
+        (self.old_out / "FlowDuration_1.csv").write_text(",2018,\n1,10.0\n", encoding="utf-8")
+
+        self.latest_out = self.base / "out_260915_103942"
+        self.latest_out.mkdir()
+
+        # 최신 폴더에 파일 생성
+        (self.latest_out / "FlowDuration_1.csv").write_text(
+            ",2019,2020,\n1,50.0,60.0\n", encoding="utf-8"
+        )
+        (self.latest_out / "FlowDuration_9.csv").write_text(
+            ",2019,2020,\n1,85.5,108.3\n", encoding="utf-8"
+        )
+        (self.latest_out / "1.csv").write_text(
+            "2020-01-01,5.5\n2020-01-02,6.0\n", encoding="utf-8"
+        )
+        (self.latest_out / "9.csv").write_text(
+            "2020-01-01,15.5\n2020-01-02,18.3\n", encoding="utf-8"
+        )
+        (self.latest_out / "all.csv").write_text(
+            ",1,9\n2020-01-01,5.5,15.5\n2020-01-02,6.0,18.3\n", encoding="utf-8"
+        )
+        (self.latest_out / "Max_step3.csv").write_text(
+            ",1,9\n2020,60.0,108.3\n", encoding="utf-8"
+        )
+
+        # rch 파일 더미 생성
+        self.rch_file = self.base / "model.rch"
+        self.rch_file.touch()
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def test_find_latest_out_dir(self):
+        latest = find_latest_out_dir(self.base)
+        self.assertIsNotNone(latest)
+        self.assertEqual(latest.name, "out_260915_103942")
+
+    def test_resolve_effective_data_dir(self):
+        # 1. out_* 하위 폴더를 가진 부모 디렉토리가 주어졌을 때 최신 out 폴더 자동 선택
+        resolved = resolve_effective_data_dir(self.base)
+        self.assertEqual(resolved.name, "out_260915_103942")
+
+        # 2. out_* 폴더 자체가 주어졌을 때는 그대로 반환
+        resolved_direct = resolve_effective_data_dir(self.latest_out)
+        self.assertEqual(resolved_direct.name, "out_260915_103942")
+
+    def test_find_files_in_new_format(self):
+        # 1. FlowDuration 파일 탐색 (out_dir 직접 및 base 부모 폴더 모두 탐색 가능)
+        fd1_direct = find_flow_duration_file(self.latest_out, reach_id=1)
+        self.assertIsNotNone(fd1_direct)
+        self.assertEqual(fd1_direct.name, "FlowDuration_1.csv")
+
+        fd9_parent = find_flow_duration_file(self.base, reach_id=9)
+        self.assertIsNotNone(fd9_parent)
+        self.assertEqual(fd9_parent.name, "FlowDuration_9.csv")
+
+        # 2. 일별 유량 파일 탐색 ({reach_id}.csv)
+        d1_direct = find_daily_flow_file(self.latest_out, reach_id=1)
+        self.assertIsNotNone(d1_direct)
+        self.assertEqual(d1_direct.name, "1.csv")
+
+        d9_parent = find_daily_flow_file(self.base, reach_id=9)
+        self.assertIsNotNone(d9_parent)
+        self.assertEqual(d9_parent.name, "9.csv")
+
+        # 3. 소유역 목록 추출 ([1, 9])
+        reaches_direct = find_available_reaches(self.latest_out)
+        self.assertEqual(reaches_direct, [1, 9])
+
+        reaches_parent = find_available_reaches(self.base)
+        self.assertEqual(reaches_parent, [1, 9])
+
+    def test_load_reach_flows_with_latest_out(self):
+        from swat_k.core.gis_visualizer import load_reach_flows
+
+        flows = load_reach_flows(str(self.rch_file), year=2020)
+        self.assertIn(1, flows)
+        self.assertIn(9, flows)
+        self.assertEqual(flows[1], 6.0)
+        self.assertEqual(flows[9], 18.3)
 
 
 class TestSettingsDataDirAndReach(unittest.TestCase):

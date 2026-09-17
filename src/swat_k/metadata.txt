@@ -1,11 +1,11 @@
 [general]
-name=SWAT-K
+name=KICT SWAT-K 2026
 qgisMinimumVersion=4.0
-description=KICT SWAT PoC 2025 - SWAT 데이터 처리 및 시각화 도구
-version=0.1
-author=KICT
+description=KICT SWAT-K 2026
+version=0.2
+author=KICT & HermeSys
 email=developer@example.com
-about=This plugin visualizes SWAT data.
+about=This plugin is designed to convert and view SWAT output (RCH) files.
 tracker=
 repository=
 category=Plugins

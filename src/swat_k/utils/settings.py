@@ -85,12 +85,29 @@ def set_target_reach(reach_id: int) -> None:
     _get_settings().setValue(KEY_TARGET_REACH, int(reach_id))
 
 
+def find_latest_out_dir(base_dir: Path | str) -> Path | None:
+    """rch 파일 디렉토리 등에서 가장 최근 생성된 out_timestamp 디렉토리를 탐색합니다."""
+    if not base_dir:
+        return None
+    p = Path(base_dir)
+    if not p.is_dir():
+        return None
+    out_dirs = [d for d in p.glob("out_*") if d.is_dir()]
+    if not out_dirs:
+        return None
+    return sorted(out_dirs, key=lambda d: (d.name, d.stat().st_mtime), reverse=True)[0]
+
+
 def get_data_dir() -> str:
     val = str(_get_settings().value(KEY_DATA_DIR, "")).strip()
     if not val:
         rch = get_rch_path()
         if rch:
-            val = str(Path(rch).parent)
+            parent = Path(rch).parent
+            out_dir = find_latest_out_dir(parent)
+            if out_dir:
+                return str(out_dir)
+            return str(parent)
     return val
 
 
