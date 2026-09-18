@@ -1,3 +1,5 @@
+import os
+import shutil
 import subprocess
 import tempfile
 import time
@@ -101,8 +103,14 @@ class ConverterWorker(QThread):
             )
             self._bat_file.write_text(bat_content, encoding="utf-8")
 
-            self._process = subprocess.Popen(
-                ["cmd.exe", "/c", str(self._bat_file)],
+            cmd_exe = (
+                os.environ.get("COMSPEC")
+                or shutil.which("cmd.exe")
+                or r"C:\Windows\System32\cmd.exe"
+            )
+            # 안전하게 생성된 임시 .bat 파일을 시스템 shell로 실행
+            self._process = subprocess.Popen(  # nosec B603, B607 # noqa: S603, S607
+                [cmd_exe, "/c", str(self._bat_file.resolve())],
                 creationflags=subprocess.CREATE_NEW_CONSOLE,
                 cwd=self.working_dir,
             )
