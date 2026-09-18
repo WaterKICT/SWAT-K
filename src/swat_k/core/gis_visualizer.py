@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from swat_k.utils.logger import log_warning
+
 # 하천 번호(Reach ID) 매핑을 위해 우선 검색할 필드명 후보 (소문자 기준)
 REACH_ID_FIELD_CANDIDATES = [
     "subbasin",
@@ -78,7 +80,11 @@ def find_paired_subbasin_shp(stream_shp_path: str) -> str:
             # subs, sub, basin, watershed 키워드 확인
             if any(k in fname_lower for k in ["sub", "basin", "watershed"]):
                 candidates.append(f)
-    except Exception:
+    except OSError as e:
+        log_warning(f"소유역 Shapefile 디렉토리 탐색 오류: {e}")
+        return ""
+    except Exception as e:
+        log_warning(f"소유역 Shapefile 검색 중 예외 발생: {e}")
         return ""
 
     if not candidates:
@@ -144,10 +150,9 @@ def load_reach_flows(
             # 컬럼명이 정수(하천 번호) 또는 정수 변환 가능한 문자열인지 확인
             reach_cols = {}
             for col in df.columns:
-                try:
-                    reach_cols[col] = int(str(col).strip())
-                except ValueError:
-                    pass
+                col_str = str(col).strip()
+                if col_str.isdigit():
+                    reach_cols[col] = int(col_str)
 
             if reach_cols:
                 # 인덱스 날짜 파싱
@@ -175,8 +180,8 @@ def load_reach_flows(
                             )
                             result[rch_id] = round(val, 3)
                     return result
-        except Exception:
-            pass
+        except Exception as e:
+            log_warning(f"all.csv 로드 중 예외 발생({all_csv_path}): {e}")
 
     # 2. Max_step3.csv (첨두홍수량 계산 결과 파일) 탐색
     max_step3_path = None
@@ -204,21 +209,25 @@ def load_reach_flows(
                 row = df_max.loc[year]
                 result = {}
                 for col in df_max.columns:
-                    try:
-                        rch_id = int(str(col).strip())
-                        result[rch_id] = round(float(row[col]), 3)
-                    except (ValueError, TypeError):
-                        pass
+                    col_str = str(col).strip()
+                    if col_str.isdigit():
+                        try:
+                            result[int(col_str)] = round(float(row[col]), 3)
+                        except (ValueError, TypeError):
+                            continue
                 if result:
                     return result
-        except Exception:
-            pass
+        except Exception as e:
+            log_warning(f"Max_step3.csv 파싱 중 예외 발생({max_step3_path}): {e}")
 
     # 3. 개별 {reach_id}.csv 또는 {rch_path}_{reach_id}.csv 파일 탐색
     result = {}
     for sdir in search_dirs:
         for reach_csv in sdir.glob("*.csv"):
-            if any(k in reach_csv.name for k in ["FlowDuration", "Max_step", "all", "equation"]):
+            if any(
+                k in reach_csv.name
+                for k in ["FlowDuration", "Max_step", "all", "equation"]
+            ):
                 continue
             rch_id = None
             if reach_csv.stem.isdigit():
@@ -229,8 +238,12 @@ def load_reach_flows(
                     rch_id = int(suffix)
             if rch_id is not None:
                 try:
-                    df_single = pd.read_csv(reach_csv, header=None, names=["date", "flow"])
-                    df_single["date"] = pd.to_datetime(df_single["date"], errors="coerce")
+                    df_single = pd.read_csv(
+                        reach_csv, header=None, names=["date", "flow"]
+                    )
+                    df_single["date"] = pd.to_datetime(
+                        df_single["date"], errors="coerce"
+                    )
                     if year is not None:
                         df_single = df_single[df_single["date"].dt.year == year]
                     flows = pd.to_numeric(df_single["flow"], errors="coerce").dropna()
@@ -239,8 +252,8 @@ def load_reach_flows(
                             flows.max() if aggregate_mode == "max" else flows.mean()
                         )
                         result[rch_id] = round(val, 3)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log_warning(f"개별 하천 CSV({reach_csv.name}) 파싱 실패: {e}")
         if result:
             return result
 
@@ -252,13 +265,13 @@ def load_reach_flows(
                 for line in f:
                     if line.startswith("REACH"):
                         parts = line.split()
-                        if len(parts) >= 6:
+                        if len(parts) >= 6 and parts[1].isdigit():
                             try:
                                 rch_id = int(parts[1])
                                 flow_out = float(parts[5])
                                 reach_data.setdefault(rch_id, []).append(flow_out)
                             except (ValueError, IndexError):
-                                pass
+                                continue
 
             if reach_data:
                 return {
@@ -273,8 +286,8 @@ def load_reach_flows(
                     for rch_id, vals in reach_data.items()
                     if vals
                 }
-        except Exception:
-            pass
+        except Exception as e:
+            log_warning(f"RCH 파일({p.name}) 파싱 실패: {e}")
 
     return {}
 
@@ -453,8 +466,8 @@ def render_swat_layers_to_qgis(
             canvas = iface.mapCanvas()
             canvas.setExtent(stream_orig.extent())
             canvas.refresh()
-        except Exception:
-            pass
+        except Exception as e:
+            log_warning(f"지도 캔버스 Extent 줌 실패: {e}")
 
     return (
         True,
@@ -504,7 +517,9 @@ def get_qgis_vector_layers(project=None) -> list:
         return []
     vector_layers = []
     for layer in proj.mapLayers().values():
-        if hasattr(layer, "type") and layer.type() == 0:  # 0: QgsMapLayerType.VectorLayer
+        if (
+            hasattr(layer, "type") and layer.type() == 0
+        ):  # 0: QgsMapLayerType.VectorLayer
             if not hasattr(layer, "isValid") or layer.isValid():
                 vector_layers.append(layer)
     return vector_layers
@@ -547,8 +562,8 @@ def get_layer_fields(layer) -> list[str]:
     try:
         if hasattr(layer, "fields"):
             return [f.name() for f in layer.fields()]
-    except Exception:
-        pass
+    except Exception as e:
+        log_warning(f"레이어 속성 필드 조회 실패: {e}")
     return []
 
 
@@ -559,13 +574,13 @@ def get_field_unique_values(layer, field_name: str) -> list[int]:
     try:
         vals = set()
         for feat in layer.getFeatures():
-            try:
-                val = int(feat[field_name])
-                vals.add(val)
-            except (ValueError, TypeError):
-                pass
+            raw_val = feat[field_name]
+            val_str = str(raw_val).strip()
+            if val_str.isdigit():
+                vals.add(int(val_str))
         return sorted(vals)
-    except Exception:
+    except Exception as e:
+        log_warning(f"필드({field_name}) 고유값 추출 실패: {e}")
         return []
 
 
@@ -590,11 +605,9 @@ def highlight_subbasin_feature(
         if fld and fld in field_names:
             target_ids = []
             for feat in active_layer.getFeatures():
-                try:
-                    if int(feat[fld]) == reach_id:
-                        target_ids.append(feat.id())
-                except (ValueError, TypeError):
-                    pass
+                val_str = str(feat[fld]).strip()
+                if val_str.isdigit() and int(val_str) == reach_id:
+                    target_ids.append(feat.id())
             if target_ids:
                 active_layer.selectByIds(target_ids)
                 found = True
@@ -603,17 +616,20 @@ def highlight_subbasin_feature(
 
     # 2. SWAT-K 등록 소유역 레이어 처리
     sub_layer = find_subbasin_layer(project)
-    if sub_layer and hasattr(sub_layer, "isValid") and sub_layer.isValid() and sub_layer != active_layer:
+    if (
+        sub_layer
+        and hasattr(sub_layer, "isValid")
+        and sub_layer.isValid()
+        and sub_layer != active_layer
+    ):
         field_names = [f.name() for f in sub_layer.fields()]
         r_field = reach_field or detect_reach_id_field(field_names)
         if r_field and r_field in field_names:
             target_ids = []
             for feat in sub_layer.getFeatures():
-                try:
-                    if int(feat[r_field]) == reach_id:
-                        target_ids.append(feat.id())
-                except (ValueError, TypeError):
-                    pass
+                val_str = str(feat[r_field]).strip()
+                if val_str.isdigit() and int(val_str) == reach_id:
+                    target_ids.append(feat.id())
             if target_ids:
                 sub_layer.selectByIds(target_ids)
                 found = True
@@ -622,17 +638,24 @@ def highlight_subbasin_feature(
 
     # 3. 하천망 레이어 처리
     stream_layer = find_streamflow_layer(project)
-    if stream_layer and hasattr(stream_layer, "isValid") and stream_layer.isValid() and stream_layer != active_layer:
+    if (
+        stream_layer
+        and hasattr(stream_layer, "isValid")
+        and stream_layer.isValid()
+        and stream_layer != active_layer
+    ):
         field_names = [f.name() for f in stream_layer.fields()]
-        r_field = "swat_reach" if "swat_reach" in field_names else detect_reach_id_field(field_names)
+        r_field = (
+            "swat_reach"
+            if "swat_reach" in field_names
+            else detect_reach_id_field(field_names)
+        )
         if r_field and r_field in field_names:
             target_ids = []
             for feat in stream_layer.getFeatures():
-                try:
-                    if int(feat[r_field]) == reach_id:
-                        target_ids.append(feat.id())
-                except (ValueError, TypeError):
-                    pass
+                val_str = str(feat[r_field]).strip()
+                if val_str.isdigit() and int(val_str) == reach_id:
+                    target_ids.append(feat.id())
             if target_ids:
                 stream_layer.selectByIds(target_ids)
                 found = True
@@ -642,8 +665,8 @@ def highlight_subbasin_feature(
     if iface and found:
         try:
             iface.mapCanvas().refresh()
-        except Exception:
-            pass
+        except Exception as e:
+            log_warning(f"지도 캔버스 새로고침 실패: {e}")
 
     return found
 
@@ -654,11 +677,13 @@ try:
     from qgis.PyQt.QtCore import pyqtSignal
 
     class SubbasinSelectMapTool(QgsMapToolEmitPoint):
-        """QGIS 지도 캔버스에서 마우스 클릭 시 피처를 감지하여 Reach ID를 알리는 맵 툴"""
+        """QGIS 지도 캔버스 클릭 시 피처를 감지하여 Reach ID를 알리는 맵 툴"""
 
         reach_selected = pyqtSignal(int)
 
-        def __init__(self, canvas, iface=None, target_layer=None, reach_field: str | None = None):
+        def __init__(
+            self, canvas, iface=None, target_layer=None, reach_field: str | None = None
+        ):
             super().__init__(canvas)
             self.iface = iface
             self.target_layer = target_layer
@@ -672,7 +697,11 @@ try:
 
         def canvasReleaseEvent(self, event):
             point = self.toMapCoordinates(event.pos())
-            mupp = self.canvas().mapUnitsPerPixel() if hasattr(self.canvas(), "mapUnitsPerPixel") else 1.0
+            mupp = (
+                self.canvas().mapUnitsPerPixel()
+                if hasattr(self.canvas(), "mapUnitsPerPixel")
+                else 1.0
+            )
 
             # 1. 사용자가 선택한 target_layer가 있는 경우 우선 탐색
             layer = self.target_layer
@@ -681,7 +710,11 @@ try:
 
             if layer and hasattr(layer, "isValid") and layer.isValid():
                 field_names = [f.name() for f in layer.fields()]
-                reach_field = self.reach_field if (self.reach_field and self.reach_field in field_names) else detect_reach_id_field(field_names)
+                reach_field = (
+                    self.reach_field
+                    if (self.reach_field and self.reach_field in field_names)
+                    else detect_reach_id_field(field_names)
+                )
 
                 if reach_field:
                     matched_feat = None
@@ -701,18 +734,19 @@ try:
                             point.x() + search_radius,
                             point.y() + search_radius,
                         )
-                        for feat in layer.getFeatures(QgsFeatureRequest().setFilterRect(rect)):
+                        for feat in layer.getFeatures(
+                            QgsFeatureRequest().setFilterRect(rect)
+                        ):
                             matched_feat = feat
                             break
 
                     if matched_feat:
-                        try:
-                            reach_id = int(matched_feat[reach_field])
+                        val_str = str(matched_feat[reach_field]).strip()
+                        if val_str.isdigit():
+                            reach_id = int(val_str)
                             layer.selectByIds([matched_feat.id()])
                             self.reach_selected.emit(reach_id)
                             return
-                        except (ValueError, TypeError):
-                            pass
 
             # 2. SWAT-K 등록 소유역 레이어 검색
             sub_layer = find_subbasin_layer()
@@ -742,13 +776,12 @@ try:
                             break
 
                     if matched_feat:
-                        try:
-                            reach_id = int(matched_feat[reach_field])
+                        val_str = str(matched_feat[reach_field]).strip()
+                        if val_str.isdigit():
+                            reach_id = int(val_str)
                             sub_layer.selectByIds([matched_feat.id()])
                             self.reach_selected.emit(reach_id)
                             return
-                        except (ValueError, TypeError):
-                            pass
 
             # 3. 하천망 선 레이어 검색
             stream_layer = find_streamflow_layer()
@@ -769,20 +802,28 @@ try:
                 for feat in stream_layer.getFeatures(
                     QgsFeatureRequest().setFilterRect(rect)
                 ):
-                    try:
-                        reach_id = int(feat[reach_field])
+                    val_str = str(feat[reach_field]).strip()
+                    if val_str.isdigit():
+                        reach_id = int(val_str)
                         stream_layer.selectByIds([feat.id()])
                         self.reach_selected.emit(reach_id)
                         return
-                    except (ValueError, TypeError):
-                        pass
 
 except ImportError:
+
     class SubbasinSelectMapTool:
         """QGIS 비의존성 환경용 더미 클래스"""
-        def __init__(self, canvas=None, iface=None, target_layer=None, reach_field=None):
-            pass
+
+        def __init__(
+            self, canvas=None, iface=None, target_layer=None, reach_field=None
+        ):
+            self.canvas = canvas
+            self.iface = iface
+            self.target_layer = target_layer
+            self.reach_field = reach_field
+
         def set_target_layer(self, layer):
-            pass
+            self.target_layer = layer
+
         def set_reach_field(self, field_name: str | None):
-            pass
+            self.reach_field = field_name

@@ -1,9 +1,8 @@
 """[SWAT-K] View 시각화 대화상자 모듈"""
 
-from datetime import datetime
-import os
-from pathlib import Path
 import re
+from datetime import datetime
+from pathlib import Path
 
 import matplotlib
 import pandas as pd
@@ -19,6 +18,11 @@ from swat_k.core.gis_visualizer import (
     highlight_subbasin_feature,
 )
 from swat_k.utils import settings
+from swat_k.utils.logger import (
+    log_error,
+    log_warning,
+    show_error_message,
+)
 
 try:
     from qgis.PyQt.QtCore import Qt, pyqtSlot
@@ -78,7 +82,7 @@ def find_latest_out_dir(base_dir: Path | str) -> Path | None:
 
 
 def resolve_effective_data_dir(data_dir: Path | str) -> Path:
-    """데이터 디렉토리가 주어졌을 때, 내부에 최신 out_timestamp 결과 폴더가 있으면 해당 폴더를 우선 반환합니다."""
+    """최신 out_timestamp 결과 폴더가 있으면 해당 폴더를 반환합니다."""
     if not data_dir:
         return Path(".")
     p = Path(data_dir)
@@ -139,7 +143,14 @@ def find_flow_duration_file(
         f"*FlowDuration_{reach_id}.csv",
     ]
     if reach_id == 1:
-        patterns.extend(["*_FlowDuration.csv", "*FlowDuration.csv", "*_FlowDuration*.csv", "*FlowDuration*.csv"])
+        patterns.extend(
+            [
+                "*_FlowDuration.csv",
+                "*FlowDuration.csv",
+                "*_FlowDuration*.csv",
+                "*FlowDuration*.csv",
+            ]
+        )
 
     for pattern in patterns:
         matched = sorted(eff_dir.glob(pattern))
@@ -162,7 +173,7 @@ def extract_years_from_flow_duration(csv_path: Path | str) -> list[str]:
     if not p or not p.is_file():
         return []
     try:
-        with open(p, "r", encoding="utf-8", errors="ignore") as f:
+        with open(p, encoding="utf-8", errors="ignore") as f:
             header = f.readline().strip()
         years = []
         for token in header.split(","):
@@ -273,14 +284,16 @@ def find_available_reaches(data_dir: Path, rch_path: str = "") -> list[int]:
 
     for f in all_files:
         try:
-            with open(f, "r", encoding="utf-8", errors="ignore") as fp:
+            with open(f, encoding="utf-8", errors="ignore") as fp:
                 line = fp.readline()
             for token in line.split(","):
                 token = token.strip()
                 if token.isdigit():
                     reaches.add(int(token))
-        except Exception:
-            pass
+        except (OSError, UnicodeError) as e:
+            log_warning(f"소유역 번호 파일({f.name}) 읽기 실패: {e}")
+        except Exception as e:
+            log_warning(f"소유역 번호 파싱 중 예외 발생({f.name}): {e}")
 
     # 2. FlowDuration_*.csv 및 *_FlowDuration_*.csv 패턴 확인
     for f in eff_dir.glob("*FlowDuration_*.csv"):
@@ -324,8 +337,8 @@ class ViewDialog(QDialog):
                 if proj:
                     proj.layersAdded.connect(self._populate_qgis_layers)
                     proj.layersRemoved.connect(self._populate_qgis_layers)
-            except Exception:
-                pass
+            except Exception as e:
+                log_warning(f"QGIS 레이어 이벤트 연동 실패: {e}")
 
     def _init_ui(self):
         root_layout = QVBoxLayout(self)
@@ -402,11 +415,12 @@ class ViewDialog(QDialog):
         self.btn_select_on_map = QPushButton("지도에서 마우스로 선택", self)
         self.btn_select_on_map.setStyleSheet(
             "QPushButton { font-weight: bold; background-color: #EEF2FF; "
-            "color: #4338CA; border: 1px solid #C7D2FE; border-radius: 4px; padding: 4px 12px; }"
+            "color: #4338CA; border: 1px solid #C7D2FE; border-radius: 4px; "
+            "padding: 4px 12px; }\n"
             "QPushButton:hover { background-color: #E0E7FF; }"
         )
         self.btn_select_on_map.setToolTip(
-            "QGIS 지도에서 마우스 클릭으로 소유역(폴리곤 또는 하천선)을 직접 선택합니다."
+            "QGIS 지도에서 마우스 클릭으로 소유역을 직접 선택합니다."
         )
         self.btn_select_on_map.clicked.connect(self._activate_map_select_tool)
 
@@ -431,7 +445,9 @@ class ViewDialog(QDialog):
         layout_banner = QHBoxLayout(self.banner_frame)
         layout_banner.setContentsMargins(4, 4, 4, 4)
 
-        self.label_banner = QLabel("현재 조회 대상: [ -번 소유역  |  - 년 ]", self.banner_frame)
+        self.label_banner = QLabel(
+            "현재 조회 대상: [ -번 소유역  |  - 년 ]", self.banner_frame
+        )
         self.label_banner.setStyleSheet(
             "font-size: 13px; font-weight: bold; color: #1E40AF;"
         )
@@ -557,10 +573,14 @@ class ViewDialog(QDialog):
         if self.iface and self.map_tool:
             try:
                 canvas = self.iface.mapCanvas()
-                if canvas and hasattr(canvas, "mapTool") and canvas.mapTool() == self.map_tool:
+                if (
+                    canvas
+                    and hasattr(canvas, "mapTool")
+                    and canvas.mapTool() == self.map_tool
+                ):
                     canvas.unsetMapTool(self.map_tool)
-            except Exception:
-                pass
+            except Exception as e:
+                log_warning(f"맵 툴 해제 중 예외 발생: {e}")
         super().closeEvent(event)
 
     def _get_current_reach_id(self) -> int:
@@ -710,8 +730,12 @@ class ViewDialog(QDialog):
         try:
             canvas = self.iface.mapCanvas()
             layer_name = self.combo_layer.currentText()
-            layer = self.combo_layer.currentData() or get_layer_by_name_or_id(layer_name)
-            reach_field = self.combo_field.currentText() or settings.get_selected_reach_field()
+            layer = self.combo_layer.currentData() or get_layer_by_name_or_id(
+                layer_name
+            )
+            reach_field = (
+                self.combo_field.currentText() or settings.get_selected_reach_field()
+            )
 
             self.map_tool = SubbasinSelectMapTool(
                 canvas,
@@ -723,7 +747,9 @@ class ViewDialog(QDialog):
             canvas.setMapTool(self.map_tool)
 
             if hasattr(self.iface, "messageBar"):
-                msg = "지도에서 분석할 소유역(폴리곤 또는 하천선)을 마우스로 클릭하세요."
+                msg = (
+                    "지도에서 분석할 소유역(폴리곤 또는 하천선)을 마우스로 클릭하세요."
+                )
                 if layer_name and not layer_name.startswith("("):
                     msg += f" [대상 레이어: {layer_name}, 필드: {reach_field}]"
                 self.iface.messageBar().pushInfo("SWAT-K", msg)
@@ -747,7 +773,9 @@ class ViewDialog(QDialog):
         target_layer = self.combo_layer.currentData() or get_layer_by_name_or_id(
             self.combo_layer.currentText()
         )
-        reach_field = self.combo_field.currentText() or settings.get_selected_reach_field()
+        reach_field = (
+            self.combo_field.currentText() or settings.get_selected_reach_field()
+        )
         highlight_subbasin_feature(
             reach_id,
             iface=self.iface,
@@ -766,7 +794,9 @@ class ViewDialog(QDialog):
             target_layer = self.combo_layer.currentData() or get_layer_by_name_or_id(
                 self.combo_layer.currentText()
             )
-            reach_field = self.combo_field.currentText() or settings.get_selected_reach_field()
+            reach_field = (
+                self.combo_field.currentText() or settings.get_selected_reach_field()
+            )
             highlight_subbasin_feature(
                 reach_id,
                 iface=self.iface,
@@ -895,9 +925,10 @@ class ViewDialog(QDialog):
         rch_path = settings.get_rch_path()
 
         # 명시적 배너 텍스트 갱신
-        self.label_banner.setText(
-            f"현재 조회 대상: [ {reach_id}번 소유역 (Reach {reach_id})  |  {year_int}년 ]"
+        banner_text = (
+            f"현재 조회 대상: [{reach_id}번 소유역 (Reach {reach_id}) | {year_int}년]"
         )
+        self.label_banner.setText(banner_text)
 
         try:
             # 1. 일단위 유량 데이터 로드
@@ -925,9 +956,7 @@ class ViewDialog(QDialog):
                     df_daily = pd.read_csv(
                         daily_file, header=None, names=["date", "flow"]
                     )
-                    df_daily["date"] = pd.to_datetime(
-                        df_daily["date"], errors="coerce"
-                    )
+                    df_daily["date"] = pd.to_datetime(df_daily["date"], errors="coerce")
                     df_filtered = df_daily[df_daily["date"].dt.year == year_int]
                     flows = (
                         pd.to_numeric(df_filtered["flow"], errors="coerce")
@@ -1000,8 +1029,8 @@ class ViewDialog(QDialog):
                         peak_val = float(df_step3.loc[year_int, col])
                         if peak_val > 0:
                             peak_flow = peak_val
-                except Exception:
-                    pass
+                except Exception as e:
+                    log_warning(f"첨두홍수량 파일({step3_file.name}) 파싱 실패: {e}")
 
             if flows or duration_flows:
                 self.label_max_flow_val.setText(f"{max_flow:,.2f} m³/s")
@@ -1011,8 +1040,9 @@ class ViewDialog(QDialog):
                 self.label_peak_flow_val.setText("-")
 
         except Exception as e:
+            log_error(f"데이터 시각화 중 오류 발생: {e}")
             if not silent_error:
-                QMessageBox.critical(
+                show_error_message(
                     self,
                     "오류 발생",
                     f"데이터를 시각화하는 중 오류가 발생했습니다:\n{str(e)}",
@@ -1053,9 +1083,7 @@ class ViewDialog(QDialog):
     @pyqtSlot()
     def _save_current_charts(self):
         """현재 렌더링된 두 차트를 고해상도 이미지 파일로 저장"""
-        save_dir = QFileDialog.getExistingDirectory(
-            self, "차트 저장 디렉토리 선택"
-        )
+        save_dir = QFileDialog.getExistingDirectory(self, "차트 저장 디렉토리 선택")
         if not save_dir:
             return
 
@@ -1070,15 +1098,12 @@ class ViewDialog(QDialog):
             Path(save_dir) / f"daily_flow_reach{reach_id}_{year_str}_{timestamp}.png"
         )
         p_duration = (
-            Path(save_dir)
-            / f"flow_duration_reach{reach_id}_{year_str}_{timestamp}.png"
+            Path(save_dir) / f"flow_duration_reach{reach_id}_{year_str}_{timestamp}.png"
         )
 
         try:
             self.fig_daily.savefig(str(p_daily), dpi=300, bbox_inches="tight")
-            self.fig_duration.savefig(
-                str(p_duration), dpi=300, bbox_inches="tight"
-            )
+            self.fig_duration.savefig(str(p_duration), dpi=300, bbox_inches="tight")
             QMessageBox.information(
                 self,
                 "저장 완료",
@@ -1087,7 +1112,7 @@ class ViewDialog(QDialog):
                 f"• 유황곡선 차트:\n  {p_duration}",
             )
         except Exception as e:
-            QMessageBox.critical(
+            show_error_message(
                 self,
                 "저장 오류",
                 f"차트 저장 중 오류가 발생했습니다:\n{str(e)}",

@@ -36,6 +36,13 @@ except ImportError:
 
 from swat_k.core.formula import DEFAULT_FORMULA, validate_formula
 from swat_k.utils import settings
+from swat_k.utils.logger import (
+    log_warning,
+    notify_user,
+    show_error_message,
+    show_info_message,
+    show_warning_message,
+)
 
 
 class ConverterWorker(QThread):
@@ -107,16 +114,16 @@ class ConverterWorker(QThread):
             if self._bat_file and self._bat_file.exists():
                 try:
                     self._bat_file.unlink(missing_ok=True)
-                except Exception:
-                    pass
+                except OSError as e:
+                    log_warning(f"임시 배치 파일({self._bat_file}) 삭제 실패: {e}")
 
     def terminate_process(self):
         """프로세스 안전 종료"""
         if self._process and self._process.poll() is None:
             try:
                 self._process.kill()
-            except Exception:
-                pass
+            except OSError as e:
+                log_warning(f"Converter 프로세스 강제 종료 실패: {e}")
 
 
 class RunDialog(QDialog):
@@ -340,28 +347,30 @@ class RunDialog(QDialog):
             return
 
         if rch_path.lower().endswith(".csv"):
-            QMessageBox.warning(
+            show_warning_message(
                 self,
                 "파일 형식 오류",
-                "CSV 파일은 RCH 입력으로 사용할 수 없습니다.\n*.rch 파일을 선택해주세요.",
+                "CSV 파일은 RCH 입력으로 사용할 수 없습니다.\n"
+                "*.rch 파일을 선택해주세요.",
             )
             return
 
         if not cio_path:
-            QMessageBox.warning(self, "입력 오류", "CIO 파일을 지정해주세요.")
+            show_warning_message(self, "입력 오류", "CIO 파일을 지정해주세요.")
             return
 
         if not Path(cio_path).is_file():
-            QMessageBox.warning(
+            show_warning_message(
                 self, "파일 오류", "지정된 CIO 파일이 존재하지 않습니다."
             )
             return
 
         if cio_path.lower().endswith(".csv"):
-            QMessageBox.warning(
+            show_warning_message(
                 self,
                 "파일 형식 오류",
-                "CSV 파일은 CIO 입력으로 사용할 수 없습니다.\n*.cio 파일을 선택해주세요.",
+                "CSV 파일은 CIO 입력으로 사용할 수 없습니다.\n"
+                "*.cio 파일을 선택해주세요.",
             )
             return
 
@@ -412,24 +421,24 @@ class RunDialog(QDialog):
             elif rch_path and Path(rch_path).parent.is_dir():
                 settings.set_data_dir(str(Path(rch_path).parent))
 
-            self.label_status.setText(f"변환 작업이 성공적으로 완료되었습니다.{folder_info}")
+            self.label_status.setText(
+                f"변환 작업이 성공적으로 완료되었습니다.{folder_info}"
+            )
             self.label_status.setStyleSheet("color: #16A34A; font-weight: bold;")
 
-            QMessageBox.information(
-                self,
-                "변환 완료",
-                f"SWAT-K Converter 변환 작업이 성공적으로 완료되었습니다.{folder_info}",
+            msg = (
+                f"SWAT-K Converter 변환 작업이 성공적으로 완료되었습니다.{folder_info}"
             )
+            notify_user(self.iface, "SWAT-K 변환 완료", msg, level="success")
+            show_info_message(self, "변환 완료", msg)
         else:
+            err_msg = f"Converter 실행 중 오류가 발생했습니다 (종료 코드: {exit_code})."
             self.label_status.setText(
                 f"변환 작업 중 오류가 발생했습니다 (종료 코드: {exit_code})."
             )
             self.label_status.setStyleSheet("color: #DC2626; font-weight: bold;")
-            QMessageBox.critical(
-                self,
-                "변환 오류",
-                f"Converter 실행 중 오류가 발생했습니다 (종료 코드: {exit_code}).",
-            )
+            notify_user(self.iface, "SWAT-K 변환 오류", err_msg, level="critical")
+            show_error_message(self, "변환 오류", err_msg)
 
     @pyqtSlot(str)
     def _on_conversion_error(self, error_msg: str):
@@ -438,11 +447,11 @@ class RunDialog(QDialog):
         self.btn_run.setText("Converter 실행")
         self.label_status.setText("변환 실행 중 오류가 발생했습니다.")
         self.label_status.setStyleSheet("color: #DC2626; font-weight: bold;")
-        QMessageBox.critical(
-            self,
-            "실행 오류",
-            f"Converter 프로세스를 실행하는 중 오류가 발생했습니다:\n{error_msg}",
+        detail_msg = (
+            f"Converter 프로세스를 실행하는 중 오류가 발생했습니다:\n{error_msg}"
         )
+        notify_user(self.iface, "SWAT-K 실행 오류", detail_msg, level="critical")
+        show_error_message(self, "실행 오류", detail_msg)
 
     def closeEvent(self, event):
         """대화상자 닫기 시 실행 중인 프로세스 확인"""
