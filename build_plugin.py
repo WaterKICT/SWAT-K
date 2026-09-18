@@ -74,6 +74,14 @@ def build_plugin(src_dir: str = "src/swat_k", output_path: str = "swat_k.zip") -
             packed_files.append((arcname, f.stat().st_size))
             print(f"  + {arcname.as_posix():<40} ({f.stat().st_size:>7,} bytes)")
 
+        # 루트의 LICENSE 파일 포함 (src 내에 없을 경우)
+        license_file = base_dir / "LICENSE"
+        if license_file.is_file() and not (src / "LICENSE").exists():
+            arcname = Path("swat_k") / "LICENSE"
+            zf.write(license_file, arcname)
+            packed_files.append((arcname, license_file.stat().st_size))
+            print(f"  + {arcname.as_posix():<40} ({license_file.stat().st_size:>7,} bytes)")
+
     zip_size = out.stat().st_size
     print("-" * 60)
     print(f"[완료] 총 {len(packed_files)}개 파일 압축 완료 (ZIP 크기: {zip_size:,} bytes)")
