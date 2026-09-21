@@ -71,3 +71,9 @@ swat-k/
 ├── pyproject.toml           # 패키지 명세 및 Ruff/QGIS CI 설정
 └── README.md
 ```
+
+
+
+## 추가 참고 정보(WIKI)
+https://github.com/floodmodel/SWAT-K/wiki/QGIS-plugin-(SWAT%E2%80%90K)
+여기를 참고해주세요 (WaterKICT/SWAT-K 에서 wiki 기능이 enable 되면 contents를 move할 예정입니다.)
