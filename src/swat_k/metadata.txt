@@ -2,7 +2,7 @@
 name=KICT SWAT-K 2026
 qgisMinimumVersion=4.0
 description=KICT SWAT-K 2026
-version=0.4
+version=0.5
 author=KICT & HermeSys
 email=sukmin28@hermesys.co.kr
 about=This plugin is designed to convert and view SWAT output (RCH) files.
