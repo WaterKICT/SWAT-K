@@ -13,8 +13,10 @@ from swat_k.view_window import (
     extract_years_from_flow_duration,
     find_available_reaches,
     find_daily_flow_file,
+    find_equation_file,
     find_flow_duration_file,
     find_latest_out_dir,
+    read_user_equation,
     resolve_effective_data_dir,
 )
 
@@ -112,6 +114,44 @@ class TestViewWindowHelpers(unittest.TestCase):
             all_csv = tmppath / "model_all.csv"
             all_csv.write_text(",1,4,9\n2020-01-01,1,2,3\n", encoding="utf-8")
             self.assertEqual(find_available_reaches(tmppath), [1, 4, 9])
+
+    def test_find_equation_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+
+            # 1. 빈 디렉토리 -> None
+            self.assertIsNone(find_equation_file(tmppath, "a.rch"))
+
+            # 2. Max_step3_equation.csv 우선 탐색
+            eq_file = tmppath / "Max_step3_equation.csv"
+            eq_file.touch()
+            found = find_equation_file(tmppath, "a.rch")
+            self.assertIsNotNone(found)
+            self.assertEqual(found.name, "Max_step3_equation.csv")
+
+            # 3. 접두사가 붙은 a.rch_Max_step3_equation.csv 탐색
+            eq_file.unlink()
+            eq_prefixed = tmppath / "a.rch_Max_step3_equation.csv"
+            eq_prefixed.touch()
+            found_prefixed = find_equation_file(tmppath, "a.rch")
+            self.assertIsNotNone(found_prefixed)
+            self.assertEqual(found_prefixed.name, "a.rch_Max_step3_equation.csv")
+
+    def test_read_user_equation(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+            eq_csv = tmppath / "Max_step3_equation.csv"
+
+            # 1. 수식 문자열 정상 파싱
+            formula = "0.5 * v0 + 0.5 * v2 + (2 * v1 - v0 - v2) / 2"
+            eq_csv.write_text(f"{formula}\n", encoding="utf-8")
+            self.assertEqual(read_user_equation(eq_csv), formula)
+
+            # 2. 파일 없음 -> 빈 문자열
+            self.assertEqual(read_user_equation(tmppath / "non_existent.csv"), "")
+
+            # 3. None 전달 -> 빈 문자열
+            self.assertEqual(read_user_equation(None), "")
 
 
 class TestTimestampedOutFolderHelpers(unittest.TestCase):
@@ -383,6 +423,11 @@ class TestViewDialog(unittest.TestCase):
             encoding="utf-8",
         )
 
+        # 수식 파일 생성 (Max_step3_equation.csv)
+        self.eq_file = self.tmppath / "model.rch_Max_step3_equation.csv"
+        self.eq_formula = "0.5 * v0 + 0.5 * v2 + (2 * v1 - v0 - v2) / 2"
+        self.eq_file.write_text(f"{self.eq_formula}\n", encoding="utf-8")
+
         # settings 사전 설정
         settings.set_data_dir(str(self.tmppath))
         settings.set_rch_path(str(self.tmppath / "model.rch"))
@@ -414,7 +459,12 @@ class TestViewDialog(unittest.TestCase):
         self.assertIn("9번 소유역", banner_text)
         self.assertIn("2020년", banner_text)
 
-        # 5. 차트 제목 검증
+        # 5. 사용자 식 라벨 검증
+        eq_text = dialog.label_equation.text()
+        self.assertIn("사용자 식:", eq_text)
+        self.assertIn(self.eq_formula, eq_text)
+
+        # 6. 차트 제목 검증
         daily_title = dialog.ax_daily.get_title()
         self.assertIn("9번 소유역", daily_title)
         self.assertIn("2020년", daily_title)
@@ -423,7 +473,7 @@ class TestViewDialog(unittest.TestCase):
         self.assertIn("9번 소유역", duration_title)
         self.assertIn("2020년", duration_title)
 
-        # 6. 홍수량 통계 수치 검증 (Reach 9의 2020년 데이터: 108.30 m³/s)
+        # 7. 홍수량 통계 수치 검증 (Reach 9의 2020년 데이터: 108.30 m³/s)
         self.assertIn("108.30", dialog.label_max_flow_val.text())
         self.assertIn("108.30", dialog.label_peak_flow_val.text())
 

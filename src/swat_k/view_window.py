@@ -315,6 +315,74 @@ def find_available_reaches(data_dir: Path, rch_path: str = "") -> list[int]:
     return sorted(reaches) if reaches else [1]
 
 
+def find_equation_file(data_dir: Path, rch_path: str = "") -> Path | None:
+    """데이터 디렉토리에서 첨두홍수량 계산 수식이 저장된 Max_step3_equation.csv 파일을 탐색합니다.
+
+    Args:
+        data_dir: Swat-K 전용 데이터 폴더 경로
+        rch_path: RCH 파일 경로 (선택)
+
+    Returns:
+        탐색된 수식 CSV의 Path 객체 또는 None
+    """
+    if not data_dir or not data_dir.is_dir():
+        return None
+
+    eff_dir = resolve_effective_data_dir(data_dir)
+    rch_name = Path(rch_path).name if rch_path else ""
+    rch_stem = Path(rch_path).stem if rch_path else ""
+
+    candidates = [
+        eff_dir / "Max_step3_equation.csv",
+    ]
+    if rch_name:
+        candidates.append(eff_dir / f"{rch_name}_Max_step3_equation.csv")
+    if rch_stem:
+        candidates.append(eff_dir / f"{rch_stem}_Max_step3_equation.csv")
+
+    for c in candidates:
+        if c and c.is_file():
+            return c
+
+    # 와일드카드 패턴 검색 (*Max_step3_equation.csv 등)
+    matched = sorted(eff_dir.glob("*Max_step3_equation.csv"))
+    if matched:
+        return matched[0]
+
+    matched_alt = sorted(eff_dir.glob("*equation*.csv"))
+    if matched_alt:
+        return matched_alt[0]
+
+    return None
+
+
+def read_user_equation(csv_path: Path | str | None) -> str:
+    """Max_step3_equation.csv 파일로부터 사용자 식 문자열을 읽어옵니다.
+
+    Args:
+        csv_path: 수식 파일 경로
+
+    Returns:
+        수식 문자열 (파일이 없거나 읽기 실패 시 빈 문자열)
+    """
+    if not csv_path:
+        return ""
+    p = Path(csv_path)
+    if not p.is_file():
+        return ""
+
+    for enc in ["utf-8", "cp949", "euc-kr", "latin1"]:
+        try:
+            with open(p, encoding=enc, errors="replace") as f:
+                for line in f:
+                    stripped = line.strip()
+                    if stripped:
+                        return stripped
+        except Exception:
+            continue
+    return ""
+
+
 class ViewDialog(QDialog):
     """SWAT 데이터 차트 시각화 및 결과 조회 대화상자"""
 
@@ -453,6 +521,19 @@ class ViewDialog(QDialog):
         )
         layout_banner.addWidget(self.label_banner)
         layout_banner.addStretch()
+
+        self.label_equation = QLabel("사용자 식: -", self.banner_frame)
+        self.label_equation.setStyleSheet(
+            "QLabel {"
+            "  font-size: 12px; font-weight: bold; color: #1E3A8A;"
+            "  background-color: #DBEAFE; border: 1px solid #BFDBFE;"
+            "  border-radius: 4px; padding: 3px 10px;"
+            "}"
+        )
+        self.label_equation.setToolTip(
+            "첨두홍수량 계산에 적용된 수식 (Max_step3_equation.csv)"
+        )
+        layout_banner.addWidget(self.label_equation)
 
         root_layout.addWidget(self.banner_frame)
 
@@ -889,6 +970,8 @@ class ViewDialog(QDialog):
         self.combo_reach.blockSignals(False)
 
         self.label_banner.setText(f"현재 조회 대상: [ {message} ]")
+        self.label_equation.setText("사용자 식: -")
+        self.label_equation.setToolTip("수식 정보 없음")
         self.ax_daily.clear()
         self._format_daily_axes()
         self.canvas_daily.draw()
@@ -929,6 +1012,22 @@ class ViewDialog(QDialog):
             f"현재 조회 대상: [{reach_id}번 소유역 (Reach {reach_id}) | {year_int}년]"
         )
         self.label_banner.setText(banner_text)
+
+        # 사용자 식(Max_step3_equation.csv) 로드 및 갱신
+        eq_file = find_equation_file(data_dir, rch_path)
+        equation = read_user_equation(eq_file) if eq_file else ""
+        if not equation:
+            saved_formula = settings.get_custom_formula()
+            if saved_formula:
+                equation = saved_formula
+
+        if equation:
+            self.label_equation.setText(f"사용자 식: {equation}")
+            file_desc = f" ({eq_file.name})" if eq_file else " (설정값)"
+            self.label_equation.setToolTip(f"첨두홍수량 계산 수식{file_desc}:\n{equation}")
+        else:
+            self.label_equation.setText("사용자 식: -")
+            self.label_equation.setToolTip("수식 정보 파일(Max_step3_equation.csv)을 찾을 수 없습니다.")
 
         try:
             # 1. 일단위 유량 데이터 로드
