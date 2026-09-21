@@ -68,6 +68,30 @@ matplotlib.rcParams["font.family"] = "Malgun Gothic"
 matplotlib.rcParams["axes.unicode_minus"] = False
 
 
+def get_month_first_days(
+    year: int = 2020, one_indexed: bool = False
+) -> tuple[list[int], list[str]]:
+    """지정된 연도의 매월 1일에 해당하는 Day 인덱스와 라벨('1월' 등) 목록을 반환합니다.
+
+    Args:
+        year: 대상 연도 (윤년 여부 판정용)
+        one_indexed: 1-indexed 여부 (유황곡선처럼 1부터 시작하는 경우 True)
+
+    Returns:
+        (ticks, labels) 튜플
+    """
+    ticks = []
+    labels = []
+    valid_year = year if isinstance(year, int) and year > 0 else 2020
+    for month in range(1, 13):
+        dt = datetime(valid_year, month, 1)
+        yday = dt.timetuple().tm_yday
+        tick = yday if one_indexed else (yday - 1)
+        ticks.append(tick)
+        labels.append(f"{month}월")
+    return ticks, labels
+
+
 def find_latest_out_dir(base_dir: Path | str) -> Path | None:
     """rch 파일 디렉토리 등에서 가장 최근 생성된 out_timestamp 디렉토리를 탐색합니다."""
     if not base_dir:
@@ -612,20 +636,30 @@ class ViewDialog(QDialog):
         bottom_layout.addWidget(self.btn_close)
         root_layout.addLayout(bottom_layout)
 
-    def _format_daily_axes(self, info_label=""):
+    def _format_daily_axes(self, info_label="", year: int = 2020):
         title = f"일단위 유량 차트 {info_label}".strip()
         self.ax_daily.set_title(title, fontdict={"family": "Malgun Gothic"})
-        self.ax_daily.set_xlabel("Day Index", fontdict={"family": "Malgun Gothic"})
+        self.ax_daily.set_xlabel("날짜", fontdict={"family": "Malgun Gothic"})
         self.ax_daily.set_ylabel("유량 (m³/s)", fontdict={"family": "Malgun Gothic"})
         self.ax_daily.grid(True, linestyle="--", alpha=0.5)
+        ticks, labels = get_month_first_days(year, one_indexed=False)
+        self.ax_daily.set_xticks(ticks)
+        self.ax_daily.set_xticklabels(
+            labels, fontdict={"family": "Malgun Gothic", "size": 8.5}
+        )
 
-    def _format_duration_axes(self, info_label=""):
+    def _format_duration_axes(self, info_label="", year: int = 2020):
         title = f"소유역별 연도별 유황곡선 {info_label}".strip()
         self.ax_duration.set_title(title, fontdict={"family": "Malgun Gothic"})
-        self.ax_duration.set_xlabel("Day", fontdict={"family": "Malgun Gothic"})
+        self.ax_duration.set_xlabel("날짜", fontdict={"family": "Malgun Gothic"})
         self.ax_duration.set_ylabel("유량 (m³/s)", fontdict={"family": "Malgun Gothic"})
         self.ax_duration.set_yscale("log")
         self.ax_duration.grid(True, which="both", linestyle="--", alpha=0.5)
+        ticks, labels = get_month_first_days(year, one_indexed=True)
+        self.ax_duration.set_xticks(ticks)
+        self.ax_duration.set_xticklabels(
+            labels, fontdict={"family": "Malgun Gothic", "size": 8.5}
+        )
 
     def _load_saved_settings(self):
         """저장된 설정 불러오기 및 UI 동기화"""
@@ -1066,10 +1100,10 @@ class ViewDialog(QDialog):
 
             info_label = f"- {reach_id}번 소유역 ({year_int}년)"
             if flows:
-                self._draw_daily_flow(flows, info_label)
+                self._draw_daily_flow(flows, info_label, year=year_int)
             else:
                 self.ax_daily.clear()
-                self._format_daily_axes(f"{info_label} (데이터 없음)")
+                self._format_daily_axes(f"{info_label} (데이터 없음)", year=year_int)
                 self.canvas_daily.draw()
 
             # 2. 유황곡선 데이터 로드
@@ -1090,10 +1124,10 @@ class ViewDialog(QDialog):
                     )
 
             if duration_flows:
-                self._draw_flow_duration(duration_flows, info_label)
+                self._draw_flow_duration(duration_flows, info_label, year=year_int)
             else:
                 self.ax_duration.clear()
-                self._format_duration_axes(f"{info_label} (데이터 없음)")
+                self._format_duration_axes(f"{info_label} (데이터 없음)", year=year_int)
                 self.canvas_duration.draw()
 
             # 3. 통계 결과 계산 및 표시
@@ -1147,9 +1181,9 @@ class ViewDialog(QDialog):
                     f"데이터를 시각화하는 중 오류가 발생했습니다:\n{str(e)}",
                 )
 
-    def _draw_daily_flow(self, flows: list[float], info_label: str):
+    def _draw_daily_flow(self, flows: list[float], info_label: str, year: int = 2020):
         self.ax_daily.clear()
-        self._format_daily_axes(info_label)
+        self._format_daily_axes(info_label, year=year)
 
         if flows:
             self.ax_daily.plot(
@@ -1164,9 +1198,11 @@ class ViewDialog(QDialog):
 
         self.canvas_daily.draw()
 
-    def _draw_flow_duration(self, flow_data: list[float], info_label: str):
+    def _draw_flow_duration(
+        self, flow_data: list[float], info_label: str, year: int = 2020
+    ):
         self.ax_duration.clear()
-        self._format_duration_axes(info_label)
+        self._format_duration_axes(info_label, year=year)
 
         filtered = [v for v in flow_data if v > 0]
         if filtered:

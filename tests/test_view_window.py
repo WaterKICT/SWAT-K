@@ -16,6 +16,7 @@ from swat_k.view_window import (
     find_equation_file,
     find_flow_duration_file,
     find_latest_out_dir,
+    get_month_first_days,
     read_user_equation,
     resolve_effective_data_dir,
 )
@@ -152,6 +153,28 @@ class TestViewWindowHelpers(unittest.TestCase):
 
             # 3. None 전달 -> 빈 문자열
             self.assertEqual(read_user_equation(None), "")
+
+    def test_get_month_first_days(self):
+        # 1. 윤년(2020) 0-indexed (일단위 유량 차트용)
+        ticks_2020_0, labels_2020 = get_month_first_days(2020, one_indexed=False)
+        self.assertEqual(len(ticks_2020_0), 12)
+        self.assertEqual(len(labels_2020), 12)
+        self.assertEqual(labels_2020[0], "1월")
+        self.assertEqual(labels_2020[1], "2월")
+        self.assertEqual(labels_2020[11], "12월")
+        self.assertEqual(ticks_2020_0[0], 0)   # 1월 1일
+        self.assertEqual(ticks_2020_0[1], 31)  # 2월 1일
+        self.assertEqual(ticks_2020_0[2], 60)  # 3월 1일 (2020년 2월 29일)
+
+        # 2. 평년(2021) 0-indexed
+        ticks_2021_0, _ = get_month_first_days(2021, one_indexed=False)
+        self.assertEqual(ticks_2021_0[2], 59)  # 3월 1일 (2021년 2월 28일)
+
+        # 3. 윤년(2020) 1-indexed (유황곡선용)
+        ticks_2020_1, labels_1 = get_month_first_days(2020, one_indexed=True)
+        self.assertEqual(ticks_2020_1[0], 1)   # 1월 1일
+        self.assertEqual(ticks_2020_1[1], 32)  # 2월 1일
+        self.assertEqual(ticks_2020_1[2], 61)  # 3월 1일
 
 
 class TestTimestampedOutFolderHelpers(unittest.TestCase):
@@ -476,6 +499,24 @@ class TestViewDialog(unittest.TestCase):
         # 7. 홍수량 통계 수치 검증 (Reach 9의 2020년 데이터: 108.30 m³/s)
         self.assertIn("108.30", dialog.label_max_flow_val.text())
         self.assertIn("108.30", dialog.label_peak_flow_val.text())
+
+        # 8. X축 라벨 및 눈금(매월 1일) 검증
+        self.assertEqual(dialog.ax_daily.get_xlabel(), "날짜")
+        self.assertEqual(dialog.ax_duration.get_xlabel(), "날짜")
+
+        daily_ticks = list(dialog.ax_daily.get_xticks())
+        self.assertEqual(len(daily_ticks), 12)
+        daily_labels = [t.get_text() for t in dialog.ax_daily.get_xticklabels()]
+        self.assertEqual(daily_labels[0], "1월")
+        self.assertEqual(daily_labels[1], "2월")
+        self.assertEqual(daily_labels[11], "12월")
+
+        duration_ticks = list(dialog.ax_duration.get_xticks())
+        self.assertEqual(len(duration_ticks), 12)
+        duration_labels = [t.get_text() for t in dialog.ax_duration.get_xticklabels()]
+        self.assertEqual(duration_labels[0], "1월")
+        self.assertEqual(duration_labels[1], "2월")
+        self.assertEqual(duration_labels[11], "12월")
 
         dialog.close()
 
