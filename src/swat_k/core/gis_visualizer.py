@@ -507,21 +507,59 @@ def find_streamflow_layer(project=None):
 
 
 def get_qgis_vector_layers(project=None) -> list:
-    """현재 QGIS 프로젝트에 로드된 유효한 벡터 레이어 목록을 반환합니다."""
+    """현재 QGIS 프로젝트에 로드된 유효한 벡터 레이어 목록을 반환합니다.
+
+    래스터 레이어(DEM, 위성영상 등)는 제외되며, 속성 테이블을 지원하는 벡터 레이어만 반환합니다.
+    """
     try:
-        from qgis.core import QgsProject
+        from qgis.core import (
+            QgsMapLayerType,
+            QgsProject,
+            QgsRasterLayer,
+            QgsVectorLayer,
+        )
+
+        vector_type_val = QgsMapLayerType.VectorLayer
+        raster_type_val = QgsMapLayerType.RasterLayer
+        raster_layer_cls = QgsRasterLayer
+        vector_layer_cls = QgsVectorLayer
     except ImportError:
+        QgsProject = None
+        vector_type_val = 0
+        raster_type_val = 1
+        raster_layer_cls = None
+        vector_layer_cls = None
+
+    proj = project
+    if proj is None and QgsProject is not None:
+        proj = QgsProject.instance()
+    if not proj or not hasattr(proj, "mapLayers"):
         return []
-    proj = project or QgsProject.instance()
-    if not proj:
-        return []
+
     vector_layers = []
     for layer in proj.mapLayers().values():
-        if (
-            hasattr(layer, "type") and layer.type() == 0
-        ):  # 0: QgsMapLayerType.VectorLayer
-            if not hasattr(layer, "isValid") or layer.isValid():
-                vector_layers.append(layer)
+        if not layer:
+            continue
+        # 유효하지 않은 레이어 제외
+        if hasattr(layer, "isValid") and not layer.isValid():
+            continue
+
+        # 1. 래스터 레이어 명시적 제외 (인스턴스 타입 또는 RasterLayer Enum 검사)
+        if raster_layer_cls is not None and isinstance(layer, raster_layer_cls):
+            continue
+        if hasattr(layer, "type") and layer.type() == raster_type_val:
+            continue
+
+        # 2. 벡터 레이어만 포함 (VectorLayer Enum 또는 QgsVectorLayer 인스턴스)
+        is_vector = False
+        if vector_layer_cls is not None and isinstance(layer, vector_layer_cls):
+            is_vector = True
+        elif hasattr(layer, "type") and layer.type() == vector_type_val:
+            is_vector = True
+
+        if is_vector:
+            vector_layers.append(layer)
+
     return vector_layers
 
 

@@ -7,6 +7,7 @@ from pathlib import Path
 from swat_k.core.gis_visualizer import (
     detect_reach_id_field,
     find_paired_subbasin_shp,
+    get_qgis_vector_layers,
     load_reach_flows,
 )
 from swat_k.utils import settings
@@ -106,6 +107,47 @@ class TestGisVisualizer(unittest.TestCase):
 
         self.assertEqual(settings.get_stream_shp_path(), test_stream)
         self.assertEqual(settings.get_subbasin_shp_path(), test_sub)
+
+    def test_get_qgis_vector_layers_excludes_raster(self):
+        """get_qgis_vector_layers가 래스터 레이어를 제외하고 유효한 벡터 레이어만 반환하는지 검증"""
+        class DummyLayer:
+            def __init__(self, name: str, layer_type: int, is_valid: bool = True):
+                self._name = name
+                self._type = layer_type
+                self._valid = is_valid
+
+            def name(self):
+                return self._name
+
+            def type(self):
+                return self._type
+
+            def isValid(self):
+                return self._valid
+
+        class DummyProject:
+            def __init__(self, layers: list):
+                self._layers = {str(i): lyr for i, lyr in enumerate(layers)}
+
+            def mapLayers(self):
+                return self._layers
+
+        # 0: Vector, 1: Raster
+        vec1 = DummyLayer("subbasins_vector", 0, is_valid=True)
+        vec2 = DummyLayer("stream_vector", 0, is_valid=True)
+        raster1 = DummyLayer("dem_raster", 1, is_valid=True)
+        raster2 = DummyLayer("landuse_raster", 1, is_valid=True)
+        invalid_vec = DummyLayer("broken_vector", 0, is_valid=False)
+
+        mock_project = DummyProject([vec1, raster1, vec2, invalid_vec, raster2])
+
+        result = get_qgis_vector_layers(mock_project)
+        self.assertEqual(len(result), 2)
+        self.assertIn(vec1, result)
+        self.assertIn(vec2, result)
+        self.assertNotIn(raster1, result)
+        self.assertNotIn(raster2, result)
+        self.assertNotIn(invalid_vec, result)
 
 
 if __name__ == "__main__":
