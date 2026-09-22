@@ -404,8 +404,11 @@ def read_user_equation(csv_path: Path | str | None) -> str:
                     stripped = line.strip()
                     if stripped:
                         return stripped
-        except Exception:
-            continue
+        except (OSError, UnicodeError) as e:
+            log_warning(f"수식 파일({p.name}) 인코딩({enc}) 읽기 실패: {e}")
+        except Exception as e:
+            log_warning(f"수식 파일({p.name}) 읽기 중 예외 발생: {e}")
+            break
     return ""
 
 

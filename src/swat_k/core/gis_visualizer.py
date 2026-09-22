@@ -213,8 +213,9 @@ def load_reach_flows(
                     if col_str.isdigit():
                         try:
                             result[int(col_str)] = round(float(row[col]), 3)
-                        except (ValueError, TypeError):
-                            continue
+                        except (ValueError, TypeError) as e:
+                            log_warning(f"소유역 컬럼({col_str}) 유량 변환 실패: {e}")
+                            pass
                 if result:
                     return result
         except Exception as e:
@@ -271,7 +272,7 @@ def load_reach_flows(
                                 flow_out = float(parts[5])
                                 reach_data.setdefault(rch_id, []).append(flow_out)
                             except (ValueError, IndexError):
-                                continue
+                                pass
 
             if reach_data:
                 return {
