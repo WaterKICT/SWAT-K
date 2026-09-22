@@ -10,4 +10,4 @@ tracker=https://github.com/WaterKICT/SWAT-K/issues
 repository=https://github.com/WaterKICT/SWAT-K
 homepage=https://github.com/WaterKICT/SWAT-K
 category=Plugins
-icon=icon.svg
+icon=icon.png

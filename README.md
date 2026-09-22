@@ -66,8 +66,8 @@ swat-k/
 │       ├── utils/
 │       │   └── settings.py  # QSettings 기반 설정 영속성 관리
 │       ├── metadata.txt     # QGIS 플러그인 메타데이터
-│       ├── icon_run.svg     # Run 툴바 아이콘
-│       └── icon_view.svg    # View 툴바 아이콘
+│       ├── icon_run.png     # Run 툴바 아이콘
+│       └── icon_view.png    # View 툴바 아이콘
 ├── pyproject.toml           # 패키지 명세 및 Ruff/QGIS CI 설정
 └── README.md
 ```

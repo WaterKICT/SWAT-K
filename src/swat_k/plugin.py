@@ -21,8 +21,13 @@ class SwatKPlugin:
 
     def initGui(self):
         """QGIS GUI 초기화: 풀다운 메뉴 없이 2개의 툴바 아이콘 등록"""
-        icon_run_path = os.path.join(self.plugin_dir, "icon_run.svg")
-        icon_view_path = os.path.join(self.plugin_dir, "icon_view.svg")
+        icon_run_path = os.path.join(self.plugin_dir, "icon_run.png")
+        if not os.path.isfile(icon_run_path):
+            icon_run_path = os.path.join(self.plugin_dir, "icon_run.svg")
+
+        icon_view_path = os.path.join(self.plugin_dir, "icon_view.png")
+        if not os.path.isfile(icon_view_path):
+            icon_view_path = os.path.join(self.plugin_dir, "icon_view.svg")
 
         # 1. [SWAT-K] Run 액션 등록
         self.action_run = QAction(
