@@ -1126,8 +1126,8 @@ class ViewDialog(QDialog):
                 self.canvas_duration.draw()
 
             # 3. 통계 결과 계산 및 표시
-            max_flow = max(flows) if flows else 0.0
-            peak_flow = max_flow
+            max_flow = max(flows) if flows else None
+            peak_flow = None
 
             # Max_step3.csv (첨두홍수량 계산 결과 파일) 탐색
             step3_file = None
@@ -1160,11 +1160,14 @@ class ViewDialog(QDialog):
                 except Exception as e:
                     log_warning(f"첨두홍수량 파일({step3_file.name}) 파싱 실패: {e}")
 
-            if flows or duration_flows:
+            if max_flow is not None:
                 self.label_max_flow_val.setText(f"{max_flow:,.2f} m³/s")
-                self.label_peak_flow_val.setText(f"{peak_flow:,.2f} m³/s")
             else:
                 self.label_max_flow_val.setText("-")
+
+            if peak_flow is not None:
+                self.label_peak_flow_val.setText(f"{peak_flow:,.2f} m³/s")
+            else:
                 self.label_peak_flow_val.setText("-")
 
         except Exception as e:

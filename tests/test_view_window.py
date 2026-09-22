@@ -513,6 +513,23 @@ class TestViewDialog(unittest.TestCase):
 
         dialog.close()
 
+    def test_peak_flow_missing_shows_hyphen(self):
+        """Max_step3.csv 파일이 없을 때 최대홍수량으로 대체되지 않고 '-'로 표기되는지 검증"""
+        if self.s3.exists():
+            self.s3.unlink()
+
+        dialog = ViewDialog()
+        dialog.set_target_reach(9)
+        dialog.combo_year.setCurrentText("2020")
+
+        # 최대홍수량은 정상 표시 (Reach 9, 2020년 데이터: 108.30 m³/s)
+        self.assertIn("108.30", dialog.label_max_flow_val.text())
+
+        # 첨두홍수량은 최대홍수량으로 대체되지 않고 '-'로 표기
+        self.assertEqual("-", dialog.label_peak_flow_val.text())
+
+        dialog.close()
+
 
 if __name__ == "__main__":
     unittest.main()
