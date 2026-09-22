@@ -648,18 +648,13 @@ class ViewDialog(QDialog):
             labels, fontdict={"family": "Malgun Gothic", "size": 8.5}
         )
 
-    def _format_duration_axes(self, info_label="", year: int = 2020):
+    def _format_duration_axes(self, info_label=""):
         title = f"소유역별 연도별 유황곡선 {info_label}".strip()
         self.ax_duration.set_title(title, fontdict={"family": "Malgun Gothic"})
-        self.ax_duration.set_xlabel("날짜", fontdict={"family": "Malgun Gothic"})
+        self.ax_duration.set_xlabel("Day", fontdict={"family": "Malgun Gothic"})
         self.ax_duration.set_ylabel("유량 (m³/s)", fontdict={"family": "Malgun Gothic"})
         self.ax_duration.set_yscale("log")
         self.ax_duration.grid(True, which="both", linestyle="--", alpha=0.5)
-        ticks, labels = get_month_first_days(year, one_indexed=True)
-        self.ax_duration.set_xticks(ticks)
-        self.ax_duration.set_xticklabels(
-            labels, fontdict={"family": "Malgun Gothic", "size": 8.5}
-        )
 
     def _load_saved_settings(self):
         """저장된 설정 불러오기 및 UI 동기화"""
@@ -1124,10 +1119,10 @@ class ViewDialog(QDialog):
                     )
 
             if duration_flows:
-                self._draw_flow_duration(duration_flows, info_label, year=year_int)
+                self._draw_flow_duration(duration_flows, info_label)
             else:
                 self.ax_duration.clear()
-                self._format_duration_axes(f"{info_label} (데이터 없음)", year=year_int)
+                self._format_duration_axes(f"{info_label} (데이터 없음)")
                 self.canvas_duration.draw()
 
             # 3. 통계 결과 계산 및 표시
@@ -1198,11 +1193,9 @@ class ViewDialog(QDialog):
 
         self.canvas_daily.draw()
 
-    def _draw_flow_duration(
-        self, flow_data: list[float], info_label: str, year: int = 2020
-    ):
+    def _draw_flow_duration(self, flow_data: list[float], info_label: str):
         self.ax_duration.clear()
-        self._format_duration_axes(info_label, year=year)
+        self._format_duration_axes(info_label)
 
         filtered = [v for v in flow_data if v > 0]
         if filtered:

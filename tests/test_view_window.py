@@ -500,9 +500,9 @@ class TestViewDialog(unittest.TestCase):
         self.assertIn("108.30", dialog.label_max_flow_val.text())
         self.assertIn("108.30", dialog.label_peak_flow_val.text())
 
-        # 8. X축 라벨 및 눈금(매월 1일) 검증
+        # 8. X축 라벨 및 눈금 검증 (일단위 유량 차트는 "날짜", 유황곡선은 "Day")
         self.assertEqual(dialog.ax_daily.get_xlabel(), "날짜")
-        self.assertEqual(dialog.ax_duration.get_xlabel(), "날짜")
+        self.assertEqual(dialog.ax_duration.get_xlabel(), "Day")
 
         daily_ticks = list(dialog.ax_daily.get_xticks())
         self.assertEqual(len(daily_ticks), 12)
@@ -510,13 +510,6 @@ class TestViewDialog(unittest.TestCase):
         self.assertEqual(daily_labels[0], "1월")
         self.assertEqual(daily_labels[1], "2월")
         self.assertEqual(daily_labels[11], "12월")
-
-        duration_ticks = list(dialog.ax_duration.get_xticks())
-        self.assertEqual(len(duration_ticks), 12)
-        duration_labels = [t.get_text() for t in dialog.ax_duration.get_xticklabels()]
-        self.assertEqual(duration_labels[0], "1월")
-        self.assertEqual(duration_labels[1], "2월")
-        self.assertEqual(duration_labels[11], "12월")
 
         dialog.close()
 
