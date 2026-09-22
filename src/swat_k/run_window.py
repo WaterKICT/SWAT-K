@@ -7,6 +7,7 @@ from pathlib import Path
 
 try:
     from qgis.PyQt.QtCore import Qt, QThread, pyqtSignal, pyqtSlot
+    from qgis.PyQt.QtGui import QIcon
     from qgis.PyQt.QtWidgets import (
         QDialog,
         QFileDialog,
@@ -23,6 +24,7 @@ except ImportError:
     from PySide6.QtCore import Qt, QThread
     from PySide6.QtCore import Signal as pyqtSignal
     from PySide6.QtCore import Slot as pyqtSlot
+    from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import (
         QDialog,
         QFileDialog,
@@ -141,6 +143,12 @@ class RunDialog(QDialog):
         super().__init__(parent)
         self.iface = iface
         self.setWindowTitle("[SWAT-K] Run - Converter 실행")
+        icon_path = Path(__file__).parent / "icon.png"
+        if not icon_path.is_file():
+            icon_path = Path(__file__).parent / "icon.svg"
+        if icon_path.is_file():
+            self.setWindowIcon(QIcon(str(icon_path)))
+
         self.resize(660, 320)
         self.worker: ConverterWorker | None = None
         self._init_ui()

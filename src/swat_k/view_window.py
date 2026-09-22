@@ -26,6 +26,7 @@ from swat_k.utils.logger import (
 
 try:
     from qgis.PyQt.QtCore import Qt, pyqtSlot
+    from qgis.PyQt.QtGui import QIcon
     from qgis.PyQt.QtWidgets import (
         QComboBox,
         QDialog,
@@ -46,6 +47,7 @@ try:
 except ImportError:
     from PySide6.QtCore import Qt
     from PySide6.QtCore import Slot as pyqtSlot
+    from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import (
         QComboBox,
         QDialog,
@@ -415,6 +417,12 @@ class ViewDialog(QDialog):
         self.iface = iface
         self.map_tool = None
         self.setWindowTitle("[SWAT-K] View - 데이터 시각화")
+        icon_path = Path(__file__).parent / "icon.png"
+        if not icon_path.is_file():
+            icon_path = Path(__file__).parent / "icon.svg"
+        if icon_path.is_file():
+            self.setWindowIcon(QIcon(str(icon_path)))
+
         self.resize(880, 880)
         self.setMinimumSize(660, 560)
 
