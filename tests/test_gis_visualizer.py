@@ -149,6 +149,49 @@ class TestGisVisualizer(unittest.TestCase):
         self.assertNotIn(raster2, result)
         self.assertNotIn(invalid_vec, result)
 
+    def test_get_qgis_vector_layers_excludes_point_layer(self):
+        """get_qgis_vector_layers가 포인트 지오메트리 벡터 레이어를 제외하고 폴리곤/라인 레이어만 반환하는지 검증"""
+        class DummyVectorLayer:
+            def __init__(self, name: str, layer_type: int, geom_type: int, is_valid: bool = True):
+                self._name = name
+                self._type = layer_type
+                self._geom_type = geom_type
+                self._valid = is_valid
+
+            def name(self):
+                return self._name
+
+            def type(self):
+                return self._type
+
+            def isValid(self):
+                return self._valid
+
+            def geometryType(self):
+                return self._geom_type
+
+        class DummyProject:
+            def __init__(self, layers: list):
+                self._layers = {str(i): lyr for i, lyr in enumerate(layers)}
+
+            def mapLayers(self):
+                return self._layers
+
+        # geom_type: 0 (Point), 1 (Line), 2 (Polygon)
+        point1 = DummyVectorLayer("weather_stations", 0, geom_type=0, is_valid=True)
+        point2 = DummyVectorLayer("monitoring_points", 0, geom_type=0, is_valid=True)
+        polygon1 = DummyVectorLayer("subbasin_polygons", 0, geom_type=2, is_valid=True)
+        line1 = DummyVectorLayer("stream_reach_lines", 0, geom_type=1, is_valid=True)
+
+        mock_project = DummyProject([point1, polygon1, point2, line1])
+        result = get_qgis_vector_layers(mock_project)
+
+        self.assertNotIn(point1, result)
+        self.assertNotIn(point2, result)
+        self.assertIn(polygon1, result)
+        self.assertIn(line1, result)
+        self.assertEqual(len(result), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

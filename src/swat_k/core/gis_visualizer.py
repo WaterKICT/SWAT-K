@@ -510,7 +510,8 @@ def find_streamflow_layer(project=None):
 def get_qgis_vector_layers(project=None) -> list:
     """현재 QGIS 프로젝트에 로드된 유효한 벡터 레이어 목록을 반환합니다.
 
-    래스터 레이어(DEM, 위성영상 등)는 제외되며, 속성 테이블을 지원하는 벡터 레이어만 반환합니다.
+    래스터 레이어(DEM, 위성영상 등) 및 포인트(Point) 레이어는 제외되며,
+    속성 테이블을 지원하는 유효한 폴리곤/라인 벡터 레이어만 반환합니다.
     """
     try:
         from qgis.core import (
@@ -518,13 +519,20 @@ def get_qgis_vector_layers(project=None) -> list:
             QgsProject,
             QgsRasterLayer,
             QgsVectorLayer,
+            QgsWkbTypes,
         )
 
         vector_type_val = QgsMapLayerType.VectorLayer
         raster_type_val = QgsMapLayerType.RasterLayer
         raster_layer_cls = QgsRasterLayer
         vector_layer_cls = QgsVectorLayer
+        point_geom_val = QgsWkbTypes.PointGeometry
     except ImportError:
+        try:
+            from qgis.core import Qgis
+            point_geom_val = Qgis.GeometryType.Point
+        except Exception:
+            point_geom_val = 0
         QgsProject = None
         vector_type_val = 0
         raster_type_val = 1
@@ -551,7 +559,35 @@ def get_qgis_vector_layers(project=None) -> list:
         if hasattr(layer, "type") and layer.type() == raster_type_val:
             continue
 
-        # 2. 벡터 레이어만 포함 (VectorLayer Enum 또는 QgsVectorLayer 인스턴스)
+        # 2. 포인트(Point) 지오메트리 레이어 제외
+        geom_type = None
+        if hasattr(layer, "geometryType"):
+            gt = layer.geometryType
+            geom_type = gt() if callable(gt) else gt
+        elif hasattr(layer, "wkbType"):
+            try:
+                from qgis.core import QgsWkbTypes
+
+                wt = layer.wkbType() if callable(layer.wkbType) else layer.wkbType
+                geom_type = QgsWkbTypes.geometryType(wt)
+            except Exception:
+                pass
+
+        if geom_type is not None:
+            is_point = False
+            if (
+                geom_type == point_geom_val
+                or geom_type == 0
+                or getattr(geom_type, "name", "").lower() == "point"
+            ):
+                is_point = True
+            elif "point" in str(geom_type).lower() and "poly" not in str(geom_type).lower():
+                is_point = True
+
+            if is_point:
+                continue
+
+        # 3. 벡터 레이어만 포함 (VectorLayer Enum 또는 QgsVectorLayer 인스턴스)
         is_vector = False
         if vector_layer_cls is not None and isinstance(layer, vector_layer_cls):
             is_vector = True
