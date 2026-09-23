@@ -204,7 +204,8 @@ class RunDialog(QDialog):
         self.lineEdit_formula.setPlaceholderText(DEFAULT_FORMULA)
         self.lineEdit_formula.setToolTip(
             "v0, v1, v2 변수가 반드시 포함되어야 하며,\n"
-            "사칙연산(+, -, *, /)과 괄호만 허용됩니다."
+            "사칙연산(+, -, *, /), 괄호, 쉼표(,) 및\n"
+            "수학 함수(Sqrt, Pow, Log, Exp)만 허용됩니다."
         )
         form_layout.addRow("사용자 정의 식:", self.lineEdit_formula)
 

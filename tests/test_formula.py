@@ -89,6 +89,73 @@ class TestFormulaValidation(unittest.TestCase):
                 valid, _ = validate_formula(expr)
                 self.assertFalse(valid, f"'{expr}'는 거부되어야 합니다.")
 
+    def test_valid_functions(self):
+        """허용된 수학 함수(Sqrt, Pow, Log, Exp) 정상 동작 테스트"""
+        valid_cases = [
+            "Sqrt(v0) + Pow(v1, 2) + Log(v2) + Exp(v0)",
+            "Pow(v0, 0.5) * (v1 + Log(v2, 10))",
+            "Exp(v0) + Sqrt(v1 + v2)",
+            "Pow(Sqrt(v0), 2) + Log(v1) + Exp(v2)",
+            "Sqrt(v0) / Pow(v1, 3) + Log(Exp(v2))",
+        ]
+        for expr in valid_cases:
+            with self.subTest(expr=expr):
+                valid, msg = validate_formula(expr)
+                self.assertTrue(valid, f"'{expr}'는 유효해야 합니다: {msg}")
+
+    def test_case_sensitive_functions_rejected(self):
+        """함수 대소문자 불일치 거부 테스트 (소문자 및 전체 대문자 거부)"""
+        invalid_cases = [
+            "sqrt(v0) + v1 + v2",
+            "SQRT(v0) + v1 + v2",
+            "pow(v0, 2) + v1 + v2",
+            "POW(v0, 2) + v1 + v2",
+            "log(v0) + v1 + v2",
+            "LOG(v0) + v1 + v2",
+            "exp(v0) + v1 + v2",
+            "EXP(v0) + v1 + v2",
+        ]
+        for expr in invalid_cases:
+            with self.subTest(expr=expr):
+                valid, msg = validate_formula(expr)
+                self.assertFalse(
+                    valid, f"대소문자가 일치하지 않는 '{expr}'는 거부되어야 합니다."
+                )
+
+    def test_function_argument_count(self):
+        """함수 인자 개수 불일치 거부 테스트"""
+        invalid_cases = [
+            "Sqrt() + v0 + v1 + v2",
+            "Sqrt(v0, v1) + v2",
+            "Pow(v0) + v1 + v2",
+            "Pow(v0, v1, v2)",
+            "Log() + v0 + v1 + v2",
+            "Log(v0, v1, v2)",
+            "Exp() + v0 + v1 + v2",
+            "Exp(v0, v1) + v2",
+        ]
+        for expr in invalid_cases:
+            with self.subTest(expr=expr):
+                valid, msg = validate_formula(expr)
+                self.assertFalse(
+                    valid, f"인자 개수가 잘못된 '{expr}'는 거부되어야 합니다."
+                )
+
+    def test_bare_function_identifier_rejected(self):
+        """함수가 호출 형태()가 아닌 변수처럼 사용된 경우 거부 테스트"""
+        invalid_cases = [
+            "v0 + Sqrt + v1 + v2",
+            "v0 + Pow + v1 + v2",
+            "v0 + Log + v1 + v2",
+            "v0 + Exp + v1 + v2",
+        ]
+        for expr in invalid_cases:
+            with self.subTest(expr=expr):
+                valid, _ = validate_formula(expr)
+                self.assertFalse(
+                    valid, f"함수가 변수 위치에 사용된 '{expr}'는 거부되어야 합니다."
+                )
+
     def test_syntax_errors(self):
         """구문 문법 오류 테스트"""
         syntax_err_cases = [
